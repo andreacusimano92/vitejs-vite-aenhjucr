@@ -51,7 +51,9 @@ import {
   Clock,
   Briefcase,
   ShoppingCart,
-  CheckSquare
+  CheckSquare,
+  Sparkles,
+  Bot
 } from 'lucide-react';
 
 // --- CONFIGURAZIONE ---
@@ -70,7 +72,29 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 
 const APP_ID = typeof __app_id !== 'undefined' ? __app_id : 'impresadaria-v1';
-const STANDARD_HOURLY_RATE = 30.00; // AGGIORNATO A 30 EURO
+const STANDARD_HOURLY_RATE = 30.00; 
+
+// --- INTEGRAZIONE AI (GEMINI) ---
+const callGeminiAI = async (prompt) => {
+  const apiKey = ""; // Runtime environment key
+  try {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }]
+        })
+      }
+    );
+    const data = await response.json();
+    return data.candidates?.[0]?.content?.parts?.[0]?.text || "Non sono riuscito a generare una risposta.";
+  } catch (error) {
+    console.error("AI Error:", error);
+    return "Errore di connessione con l'IA.";
+  }
+};
 
 // --- CONFIGURAZIONE UTENTI ---
 const USERS_CONFIG = {
@@ -126,7 +150,7 @@ const LoadingScreen = () => (
 // --- DASHBOARD & ROUTING ---
 function Dashboard({ user, userData }) {
   const [selectedTask, setSelectedTask] = useState(null); 
-  const [activeTab, setActiveTab] = useState('tasks'); // 'tasks', 'materials', 'reports'
+  const [activeTab, setActiveTab] = useState('tasks'); 
   const handleLogout = () => signOut(auth);
   const isMaster = userData?.role === 'Master';
 
@@ -215,6 +239,16 @@ function TaskDetailView({ task, user, userData, isMaster, onBack }) {
   const [isEditing, setIsEditing] = useState(false);
   const [editData, setEditData] = useState({ title: task.title, client: task.client, description: task.description || '' });
 
+  // Lista tab dinamica in base al ruolo
+  const tabs = [
+    { id: 'overview', label: 'Panoramica', icon: Activity },
+    { id: 'materials', label: 'Materiali', icon: Package },
+    { id: 'requests', label: 'Richieste', icon: ShoppingCart },
+    { id: 'photos', label: 'Foto', icon: Camera },
+    // Mostra Contabilità SOLO se Master
+    ...(isMaster ? [{ id: 'accounting', label: 'Contabilità', icon: Calculator }] : [])
+  ];
+
   const handleUpdateTask = async () => {
     try {
       await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'tasks', task.id), {
@@ -261,15 +295,9 @@ function TaskDetailView({ task, user, userData, isMaster, onBack }) {
           </div>
         )}
 
-        {/* Menu Navigazione Cantiere AGGIORNATO */}
+        {/* Menu Navigazione Cantiere */}
         <div className="flex gap-1 mt-8 border-b border-slate-100 overflow-x-auto">
-          {[
-            { id: 'overview', label: 'Panoramica', icon: Activity },
-            { id: 'materials', label: 'Materiali', icon: Package },
-            { id: 'requests', label: 'Richieste', icon: ShoppingCart }, // NUOVA TAB
-            { id: 'photos', label: 'Foto', icon: Camera },
-            { id: 'accounting', label: 'Contabilità', icon: Calculator },
-          ].map((tab) => (
+          {tabs.map((tab) => (
             <button key={tab.id} onClick={() => setActiveSection(tab.id)} className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeSection === tab.id ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'}`}>
               <tab.icon className="w-4 h-4" /> {tab.label}
             </button>
@@ -278,28 +306,76 @@ function TaskDetailView({ task, user, userData, isMaster, onBack }) {
       </div>
 
       <div className="min-h-[400px]">
-        {activeSection === 'overview' && <SiteOverview taskId={task.id} />}
+        {activeSection === 'overview' && <SiteOverview task={task} isMaster={isMaster} />}
         {activeSection === 'materials' && <MaterialsView user={user} userData={userData} isMaster={isMaster} context="site" taskId={task.id} />}
-        {activeSection === 'requests' && <MaterialRequestsView user={user} userData={userData} isMaster={isMaster} taskId={task.id} />} {/* NUOVA VISTA */}
+        {activeSection === 'requests' && <MaterialRequestsView user={user} userData={userData} isMaster={isMaster} task={task} />} 
         {activeSection === 'photos' && <SitePhotos taskId={task.id} user={user} userData={userData} isMaster={isMaster} />}
-        {activeSection === 'accounting' && <SiteAccounting taskId={task.id} user={user} isMaster={isMaster} />}
+        {/* Contabilità solo se master, doppia protezione (UI e logica render) */}
+        {activeSection === 'accounting' && isMaster && <SiteAccounting taskId={task.id} user={user} isMaster={isMaster} />}
       </div>
     </div>
   );
 }
 
-// --- NUOVA VISTA RICHIESTE MATERIALI (DIPENDENTI) ---
-function MaterialRequestsView({ taskId, user, userData, isMaster }) {
+// 1. Panoramica
+function SiteOverview({ task, isMaster }) {
+  const [aiAnalysis, setAiAnalysis] = useState('');
+  const [loadingAi, setLoadingAi] = useState(false);
+
+  const handleAiAnalysis = async () => {
+    setLoadingAi(true);
+    const prompt = `Analizza questo cantiere edile. 
+    Nome: ${task.title}. 
+    Committente: ${task.client}. 
+    Descrizione: ${task.description}. 
+    Stato: ${task.completed ? 'Completato' : 'In Corso'}.
+    Scrivi un breve riassunto professionale sullo stato e suggerisci 2 priorità tipiche per questo tipo di lavoro.`;
+    
+    const result = await callGeminiAI(prompt);
+    setAiAnalysis(result);
+    setLoadingAi(false);
+  };
+
+  return (
+    <div className="space-y-4">
+       {/* Widget AI per Master */}
+       {isMaster && (
+         <div className="bg-gradient-to-r from-violet-50 to-fuchsia-50 p-4 rounded-xl border border-violet-100">
+            <div className="flex justify-between items-start mb-2">
+               <h3 className="font-bold text-violet-800 flex items-center gap-2"><Bot className="w-5 h-5"/> Assistente Cantiere AI</h3>
+               {!aiAnalysis && <button onClick={handleAiAnalysis} disabled={loadingAi} className="text-xs bg-violet-600 text-white px-3 py-1.5 rounded-lg flex items-center gap-1 hover:bg-violet-700">{loadingAi ? <Loader2 className="w-3 h-3 animate-spin"/> : <Sparkles className="w-3 h-3"/>} Analizza</button>}
+            </div>
+            {aiAnalysis ? (
+               <div className="text-sm text-slate-700 bg-white/50 p-3 rounded-lg border border-violet-100 animate-in fade-in">
+                  {aiAnalysis}
+               </div>
+            ) : (
+               <p className="text-xs text-violet-600">Clicca analizza per generare un riepilogo intelligente del cantiere.</p>
+            )}
+         </div>
+       )}
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="bg-blue-50 p-6 rounded-xl border border-blue-100 text-blue-800"><h3 className="font-semibold text-lg flex items-center gap-2"><Wrench className="w-5 h-5" /> Stato Lavori</h3><p className="text-sm mt-2 opacity-80">Sezione pronta per visualizzare lo stato di avanzamento e le scadenze prossime.</p></div>
+        <div className="bg-indigo-50 p-6 rounded-xl border border-indigo-100 text-indigo-800"><h3 className="font-semibold text-lg flex items-center gap-2"><User className="w-5 h-5" /> Squadra</h3><p className="text-sm mt-2 opacity-80">Qui verranno visualizzati i dipendenti assegnati a questo cantiere.</p></div>
+      </div>
+    </div>
+  );
+}
+
+// --- NUOVA VISTA RICHIESTE MATERIALI (CON AI) ---
+function MaterialRequestsView({ taskId, user, userData, isMaster, task }) {
   const [requests, setRequests] = useState([]);
   const [newItem, setNewItem] = useState('');
   const [quantity, setQuantity] = useState('');
   const [loading, setLoading] = useState(true);
+  const [aiSuggestions, setAiSuggestions] = useState(null);
+  const [loadingAi, setLoadingAi] = useState(false);
 
   useEffect(() => {
     const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'material_requests'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const all = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      // Filtra per questo cantiere
       setRequests(all.filter(r => r.taskId === taskId).sort((a,b) => b.createdAt?.seconds - a.createdAt?.seconds));
       setLoading(false);
     });
@@ -311,25 +387,27 @@ function MaterialRequestsView({ taskId, user, userData, isMaster }) {
     if (!newItem.trim()) return;
     try {
       await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'material_requests'), {
-        taskId,
-        item: newItem,
-        quantity: quantity,
-        userId: user.uid,
-        userName: userData?.name || 'Dipendente',
-        status: 'pending', // pending, ordered
-        createdAt: serverTimestamp()
+        taskId, item: newItem, quantity: quantity, userId: user.uid, userName: userData?.name || 'Dipendente', status: 'pending', createdAt: serverTimestamp()
       });
-      setNewItem('');
-      setQuantity('');
+      setNewItem(''); setQuantity('');
     } catch (err) { alert(err.message); }
   };
 
+  const handleAiSuggest = async () => {
+    setLoadingAi(true);
+    const prompt = `Sono in un cantiere edile per: "${task?.title}". Descrizione: "${task?.description || ''}".
+    Suggerisci 5 materiali o attrezzature essenziali che potrei aver dimenticato di ordinare.
+    Rispondi solo con una lista separata da virgole.`;
+    
+    const result = await callGeminiAI(prompt);
+    setAiSuggestions(result.split(','));
+    setLoadingAi(false);
+  };
+
   const toggleStatus = async (req) => {
-    if (!isMaster) return; // Solo master cambia stato
+    if (!isMaster) return; 
     const newStatus = req.status === 'ordered' ? 'pending' : 'ordered';
-    try {
-       await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'material_requests', req.id), { status: newStatus });
-    } catch(err) { console.error(err); }
+    try { await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'material_requests', req.id), { status: newStatus }); } catch(err) { console.error(err); }
   };
 
   const deleteRequest = async (id) => {
@@ -339,27 +417,39 @@ function MaterialRequestsView({ taskId, user, userData, isMaster }) {
 
   return (
     <div className="space-y-6">
-      <div className="bg-orange-50 border border-orange-100 p-4 rounded-xl mb-4">
-        <h3 className="font-bold text-orange-800 text-sm mb-1 flex items-center gap-2"><ShoppingCart className="w-4 h-4"/> Richieste Fornitura</h3>
-        <p className="text-xs text-orange-700">Usa questa sezione per richiedere al magazzino o ai titolari il materiale mancante per questo cantiere.</p>
+      <div className="bg-orange-50 border border-orange-100 p-4 rounded-xl mb-4 flex justify-between items-center">
+        <div>
+           <h3 className="font-bold text-orange-800 text-sm mb-1 flex items-center gap-2"><ShoppingCart className="w-4 h-4"/> Richieste Fornitura</h3>
+           <p className="text-xs text-orange-700">Richiedi materiale mancante per il cantiere.</p>
+        </div>
+        {!aiSuggestions && (
+           <button onClick={handleAiSuggest} disabled={loadingAi} className="text-xs bg-white text-orange-600 border border-orange-200 px-3 py-2 rounded-lg font-medium hover:bg-orange-100 flex items-center gap-1 shadow-sm">
+             {loadingAi ? <Loader2 className="w-3 h-3 animate-spin"/> : <Sparkles className="w-3 h-3 text-yellow-500"/>} 
+             Suggerisci Materiali AI
+           </button>
+        )}
       </div>
+
+      {aiSuggestions && (
+        <div className="bg-yellow-50 p-4 rounded-xl border border-yellow-200 mb-4 animate-in slide-in-from-top-2">
+           <div className="flex justify-between items-center mb-2">
+             <h4 className="text-xs font-bold text-yellow-800 flex items-center gap-1"><Bot className="w-3 h-3"/> Suggerimenti AI:</h4>
+             <button onClick={() => setAiSuggestions(null)} className="text-yellow-600 hover:text-yellow-800"><X className="w-3 h-3"/></button>
+           </div>
+           <div className="flex flex-wrap gap-2">
+             {aiSuggestions.map((sugg, idx) => (
+               <button key={idx} onClick={() => setNewItem(sugg.trim())} className="text-xs bg-white border border-yellow-300 text-yellow-800 px-2 py-1 rounded-md hover:bg-yellow-100 transition-colors">
+                 + {sugg.trim()}
+               </button>
+             ))}
+           </div>
+        </div>
+      )}
 
       <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
         <form onSubmit={handleAddRequest} className="flex gap-2">
-          <input 
-            type="text" 
-            placeholder="Cosa serve? (es. 50m Cavo FS17)" 
-            className="flex-1 px-3 py-2 bg-slate-50 border rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500"
-            value={newItem}
-            onChange={e => setNewItem(e.target.value)}
-          />
-          <input 
-            type="text" 
-            placeholder="Q.tà" 
-            className="w-20 px-3 py-2 bg-slate-50 border rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500"
-            value={quantity}
-            onChange={e => setQuantity(e.target.value)}
-          />
+          <input type="text" placeholder="Cosa serve? (es. 50m Cavo FS17)" className="flex-1 px-3 py-2 bg-slate-50 border rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500" value={newItem} onChange={e => setNewItem(e.target.value)} />
+          <input type="text" placeholder="Q.tà" className="w-20 px-3 py-2 bg-slate-50 border rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500" value={quantity} onChange={e => setQuantity(e.target.value)} />
           <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded-lg font-medium text-sm hover:bg-blue-700">Richiedi</button>
         </form>
       </div>
@@ -370,23 +460,10 @@ function MaterialRequestsView({ taskId, user, userData, isMaster }) {
           requests.map(req => (
             <div key={req.id} className={`flex items-center justify-between p-3 rounded-lg border transition-colors ${req.status === 'ordered' ? 'bg-green-50 border-green-100 opacity-70' : 'bg-white border-slate-200'}`}>
               <div className="flex items-center gap-3">
-                 <button 
-                   onClick={() => toggleStatus(req)}
-                   disabled={!isMaster}
-                   className={`w-5 h-5 rounded border flex items-center justify-center ${req.status === 'ordered' ? 'bg-green-500 border-green-500 text-white' : 'border-slate-300 text-transparent'} ${!isMaster ? 'cursor-default' : 'cursor-pointer'}`}
-                 >
-                   <CheckSquare className="w-3.5 h-3.5" />
-                 </button>
-                 <div>
-                    <p className={`font-medium text-sm ${req.status === 'ordered' ? 'line-through text-slate-500' : 'text-slate-800'}`}>
-                      {req.item} <span className="text-slate-500 font-normal">({req.quantity})</span>
-                    </p>
-                    <p className="text-[10px] text-slate-400">Richiesto da: {req.userName} • {req.createdAt ? new Date(req.createdAt.seconds * 1000).toLocaleDateString() : ''}</p>
-                 </div>
+                 <button onClick={() => toggleStatus(req)} disabled={!isMaster} className={`w-5 h-5 rounded border flex items-center justify-center ${req.status === 'ordered' ? 'bg-green-500 border-green-500 text-white' : 'border-slate-300 text-transparent'} ${!isMaster ? 'cursor-default' : 'cursor-pointer'}`}><CheckSquare className="w-3.5 h-3.5" /></button>
+                 <div><p className={`font-medium text-sm ${req.status === 'ordered' ? 'line-through text-slate-500' : 'text-slate-800'}`}>{req.item} <span className="text-slate-500 font-normal">({req.quantity})</span></p><p className="text-[10px] text-slate-400">Richiesto da: {req.userName} • {req.createdAt ? new Date(req.createdAt.seconds * 1000).toLocaleDateString() : ''}</p></div>
               </div>
-              {(isMaster || req.userId === user.uid) && (
-                <button onClick={() => deleteRequest(req.id)} className="text-slate-300 hover:text-red-500 p-1"><Trash2 className="w-4 h-4" /></button>
-              )}
+              {(isMaster || req.userId === user.uid) && <button onClick={() => deleteRequest(req.id)} className="text-slate-300 hover:text-red-500 p-1"><Trash2 className="w-4 h-4" /></button>}
             </div>
           ))
         }
@@ -395,17 +472,7 @@ function MaterialRequestsView({ taskId, user, userData, isMaster }) {
   );
 }
 
-// 1. Panoramica
-function SiteOverview({ taskId }) {
-  return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-      <div className="bg-blue-50 p-6 rounded-xl border border-blue-100 text-blue-800"><h3 className="font-semibold text-lg flex items-center gap-2"><Wrench className="w-5 h-5" /> Stato Lavori</h3><p className="text-sm mt-2 opacity-80">Sezione pronta per visualizzare lo stato di avanzamento e le scadenze prossime.</p></div>
-      <div className="bg-indigo-50 p-6 rounded-xl border border-indigo-100 text-indigo-800"><h3 className="font-semibold text-lg flex items-center gap-2"><User className="w-5 h-5" /> Squadra</h3><p className="text-sm mt-2 opacity-80">Qui verranno visualizzati i dipendenti assegnati a questo cantiere.</p></div>
-    </div>
-  );
-}
-
-// 2. Foto Cantiere
+// 2. Foto Cantiere (Invariata)
 function SitePhotos({ taskId, user, userData, isMaster }) {
   const [photos, setPhotos] = useState([]);
   const [uploading, setUploading] = useState(false);
@@ -466,14 +533,13 @@ function SitePhotos({ taskId, user, userData, isMaster }) {
   );
 }
 
-// 3. Contabilità Cantiere
+// 3. Contabilità Cantiere (Invariata ma protetta)
 function SiteAccounting({ taskId, user, isMaster }) {
   const [materialsTotal, setMaterialsTotal] = useState(0);
   const [expenses, setExpenses] = useState([]);
   const [reportsTotal, setReportsTotal] = useState(0); 
   const [newExpense, setNewExpense] = useState({ desc: '', amount: '', type: 'Manodopera' });
 
-  // 1. Fetch Materials Total
   useEffect(() => {
     const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'materials'));
     const unsub = onSnapshot(q, (snap) => {
@@ -483,7 +549,6 @@ function SiteAccounting({ taskId, user, isMaster }) {
     return () => unsub();
   }, [taskId]);
 
-  // 2. Fetch Extra Expenses
   useEffect(() => {
     const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'expenses'));
     const unsub = onSnapshot(q, (snap) => {
@@ -493,7 +558,6 @@ function SiteAccounting({ taskId, user, isMaster }) {
     return () => unsub();
   }, [taskId]);
 
-  // 3. Fetch Daily Reports per Manodopera Automatica
   useEffect(() => {
     const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'daily_reports'));
     const unsub = onSnapshot(q, (snap) => {
@@ -525,7 +589,6 @@ function SiteAccounting({ taskId, user, isMaster }) {
 
   return (
     <div className="space-y-6">
-      {/* Cards Totali */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
           <div className="text-slate-500 text-xs font-bold uppercase mb-1">Costo Materiali</div>
@@ -543,18 +606,13 @@ function SiteAccounting({ taskId, user, isMaster }) {
           <div className="text-3xl font-bold">€ {grandTotal.toFixed(2)}</div>
         </div>
       </div>
-
+      {/* ... Resto della UI contabilità identico ... */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Lista Spese Extra */}
         <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-          <div className="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
-            <h3 className="font-semibold text-slate-800">Spese Extra Manuali</h3>
-          </div>
+          <div className="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center"><h3 className="font-semibold text-slate-800">Spese Extra Manuali</h3></div>
           <div className="p-4 border-b border-slate-100 bg-slate-50/50">
             <form onSubmit={addExpense} className="flex flex-col sm:flex-row gap-2">
-              <select value={newExpense.type} onChange={e => setNewExpense({...newExpense, type: e.target.value})} className="px-3 py-2 rounded-lg border border-slate-200 text-sm outline-none">
-                <option>Manodopera Extra</option><option>Permessi</option><option>Noleggio</option><option>Pasti/Trasferte</option><option>Altro</option>
-              </select>
+              <select value={newExpense.type} onChange={e => setNewExpense({...newExpense, type: e.target.value})} className="px-3 py-2 rounded-lg border border-slate-200 text-sm outline-none"><option>Manodopera Extra</option><option>Permessi</option><option>Noleggio</option><option>Pasti/Trasferte</option><option>Altro</option></select>
               <input type="text" placeholder="Descrizione" className="flex-1 px-3 py-2 rounded-lg border border-slate-200 text-sm outline-none" value={newExpense.desc} onChange={e => setNewExpense({...newExpense, desc: e.target.value})} />
               <input type="number" placeholder="€ Costo" className="w-24 px-3 py-2 rounded-lg border border-slate-200 text-sm outline-none" value={newExpense.amount} onChange={e => setNewExpense({...newExpense, amount: e.target.value})} />
               <button type="submit" className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">Aggiungi</button>
@@ -570,33 +628,24 @@ function SiteAccounting({ taskId, user, isMaster }) {
             {expenses.length === 0 && <div className="p-6 text-center text-slate-400 text-sm">Nessuna spesa extra manuale registrata.</div>}
           </div>
         </div>
-        
-        {/* Info Report Automatici */}
         <div className="bg-orange-50 rounded-xl border border-orange-100 p-6">
             <h3 className="font-bold text-orange-800 mb-2 flex items-center gap-2"><Clock className="w-5 h-5"/> Manodopera da Report</h3>
-            <p className="text-sm text-orange-700 mb-4">
-                Il costo della manodopera viene calcolato automaticamente dai report giornalieri compilati dai dipendenti, moltiplicando le ore lavorate per il costo orario aziendale standard.
-            </p>
-            <div className="flex justify-between items-center border-t border-orange-200 pt-3">
-                <span className="text-orange-800 font-medium">Tasso Orario Applicato:</span>
-                <span className="font-bold text-orange-900">€ {STANDARD_HOURLY_RATE.toFixed(2)} / ora</span>
-            </div>
-             <div className="flex justify-between items-center mt-2">
-                <span className="text-orange-800 font-medium">Totale Manodopera Report:</span>
-                <span className="font-bold text-orange-900">€ {reportsTotal.toFixed(2)}</span>
-            </div>
+            <p className="text-sm text-orange-700 mb-4">Il costo della manodopera viene calcolato automaticamente dai report giornalieri.</p>
+            <div className="flex justify-between items-center border-t border-orange-200 pt-3"><span className="text-orange-800 font-medium">Tasso Orario Applicato:</span><span className="font-bold text-orange-900">€ {STANDARD_HOURLY_RATE.toFixed(2)} / ora</span></div>
+             <div className="flex justify-between items-center mt-2"><span className="text-orange-800 font-medium">Totale Manodopera Report:</span><span className="font-bold text-orange-900">€ {reportsTotal.toFixed(2)}</span></div>
         </div>
       </div>
     </div>
   );
 }
 
-// --- VISTA REPORT GIORNALIERI ---
+// --- VISTA REPORT GIORNALIERI (CON AI) ---
 function DailyReportsView({ user, userData, isMaster }) {
   const [reports, setReports] = useState([]);
   const [tasks, setTasks] = useState([]); 
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [loadingAi, setLoadingAi] = useState(false);
 
   // Form State
   const [formData, setFormData] = useState({
@@ -606,7 +655,6 @@ function DailyReportsView({ user, userData, isMaster }) {
     description: ''
   });
 
-  // Fetch Reports e Tasks
   useEffect(() => {
     const qTasks = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'tasks'));
     const unsubTasks = onSnapshot(qTasks, (snap) => {
@@ -625,12 +673,20 @@ function DailyReportsView({ user, userData, isMaster }) {
     return () => { unsubTasks(); unsubReports(); };
   }, []);
 
+  const handleAiPolish = async (e) => {
+    e.preventDefault(); // Prevent form submission
+    if(!formData.description) return;
+    setLoadingAi(true);
+    const prompt = `Riscrivi questa descrizione di lavoro edile in modo professionale, chiaro e grammaticalmente corretto in italiano: "${formData.description}"`;
+    const result = await callGeminiAI(prompt);
+    setFormData(prev => ({...prev, description: result}));
+    setLoadingAi(false);
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!formData.taskId || !formData.hours || !formData.description) return;
-
     const selectedTask = tasks.find(t => t.id === formData.taskId);
-
     try {
       await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'daily_reports'), {
         ...formData,
@@ -640,16 +696,9 @@ function DailyReportsView({ user, userData, isMaster }) {
         userName: userData?.name,
         createdAt: serverTimestamp()
       });
-      setFormData({
-        taskId: '',
-        date: new Date().toISOString().split('T')[0],
-        hours: '',
-        description: ''
-      });
+      setFormData({ taskId: '', date: new Date().toISOString().split('T')[0], hours: '', description: '' });
       setIsFormOpen(false);
-    } catch (err) {
-      alert("Errore salvataggio report: " + err.message);
-    }
+    } catch (err) { alert("Errore salvataggio report: " + err.message); }
   };
 
   const deleteReport = async (id) => {
@@ -661,149 +710,58 @@ function DailyReportsView({ user, userData, isMaster }) {
   return (
     <div className="space-y-6">
       {!isFormOpen && (
-        <button 
-          onClick={() => setIsFormOpen(true)}
-          className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-medium shadow-sm flex items-center justify-center gap-2 transition-all"
-        >
-          <Plus className="w-5 h-5" />
-          Compila Report Giornaliero
+        <button onClick={() => setIsFormOpen(true)} className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-medium shadow-sm flex items-center justify-center gap-2 transition-all">
+          <Plus className="w-5 h-5" /> Compila Report Giornaliero
         </button>
       )}
 
       {isFormOpen && (
         <div className="bg-white p-6 rounded-2xl shadow-lg border border-blue-100 animate-in fade-in slide-in-from-top-4">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="font-semibold text-slate-800 flex items-center gap-2">
-              <FileText className="w-5 h-5 text-blue-600" />
-              Nuovo Report Attività
-            </h3>
-            <button onClick={() => setIsFormOpen(false)} className="text-slate-400 hover:text-slate-600 text-sm">Annulla</button>
-          </div>
-
+          <div className="flex justify-between items-center mb-4"><h3 className="font-semibold text-slate-800 flex items-center gap-2"><FileText className="w-5 h-5 text-blue-600" /> Nuovo Report Attività</h3><button onClick={() => setIsFormOpen(false)} className="text-slate-400 hover:text-slate-600 text-sm">Annulla</button></div>
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-1">
-              <label className="text-xs font-bold text-slate-500 uppercase">Seleziona Cantiere</label>
-              <div className="relative">
-                <Briefcase className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-                <select 
-                  required 
-                  value={formData.taskId}
-                  onChange={e => setFormData({...formData, taskId: e.target.value})}
-                  className="w-full pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none appearance-none"
-                >
-                  <option value="">-- Seleziona il cantiere dove hai lavorato --</option>
-                  {tasks.map(t => (
-                    <option key={t.id} value={t.id}>
-                      {t.title} {t.completed ? '(Completato)' : ''} - {t.client}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
+            <div className="space-y-1"><label className="text-xs font-bold text-slate-500 uppercase">Seleziona Cantiere</label><div className="relative"><Briefcase className="w-4 h-4 text-slate-400 absolute left-3 top-3" /><select required value={formData.taskId} onChange={e => setFormData({...formData, taskId: e.target.value})} className="w-full pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none appearance-none"><option value="">-- Seleziona il cantiere dove hai lavorato --</option>{tasks.map(t => (<option key={t.id} value={t.id}>{t.title} {t.completed ? '(Completato)' : ''} - {t.client}</option>))}</select></div></div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-500 uppercase">Data</label>
-                <div className="relative">
-                  <Calendar className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-                  <input 
-                    type="date" 
-                    required 
-                    value={formData.date}
-                    onChange={e => setFormData({...formData, date: e.target.value})}
-                    className="w-full pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                  />
-                </div>
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-500 uppercase">Ore Lavorate</label>
-                <div className="relative">
-                  <Clock className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-                  <input 
-                    type="number" 
-                    step="0.5"
-                    required 
-                    value={formData.hours}
-                    onChange={e => setFormData({...formData, hours: e.target.value})}
-                    className="w-full pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                    placeholder="Es. 8"
-                  />
-                </div>
-              </div>
+              <div className="space-y-1"><label className="text-xs font-bold text-slate-500 uppercase">Data</label><div className="relative"><Calendar className="w-4 h-4 text-slate-400 absolute left-3 top-3" /><input type="date" required value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} className="w-full pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"/></div></div>
+              <div className="space-y-1"><label className="text-xs font-bold text-slate-500 uppercase">Ore Lavorate</label><div className="relative"><Clock className="w-4 h-4 text-slate-400 absolute left-3 top-3" /><input type="number" step="0.5" required value={formData.hours} onChange={e => setFormData({...formData, hours: e.target.value})} className="w-full pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Es. 8"/></div></div>
             </div>
-
             <div className="space-y-1">
-              <label className="text-xs font-bold text-slate-500 uppercase">Descrizione Lavoro Svolto</label>
-              <textarea 
-                required 
-                rows="3"
-                value={formData.description}
-                onChange={e => setFormData({...formData, description: e.target.value})}
-                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                placeholder="Dettaglia le operazioni effettuate..."
-              />
+              <div className="flex justify-between">
+                <label className="text-xs font-bold text-slate-500 uppercase">Descrizione Lavoro</label>
+                <button type="button" onClick={handleAiPolish} disabled={loadingAi || !formData.description} className="text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded flex items-center gap-1 hover:bg-blue-100 transition-colors">{loadingAi ? <Loader2 className="w-3 h-3 animate-spin"/> : <Sparkles className="w-3 h-3"/>} Migliora Testo AI</button>
+              </div>
+              <textarea required rows="3" value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Es: fatto intonaco e montato prese..." />
             </div>
-
-            <div className="flex justify-end pt-2">
-              <button type="submit" className="bg-blue-600 text-white px-8 py-2.5 rounded-lg font-medium shadow-md hover:bg-blue-700 transition-colors">
-                Invia Report
-              </button>
-            </div>
+            <div className="flex justify-end pt-2"><button type="submit" className="bg-blue-600 text-white px-8 py-2.5 rounded-lg font-medium shadow-md hover:bg-blue-700 transition-colors">Invia Report</button></div>
           </form>
         </div>
       )}
 
       {/* Lista Storico Report */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="p-4 bg-slate-50 border-b border-slate-200">
-          <h3 className="font-bold text-slate-700">Storico Attività Recenti</h3>
-        </div>
+        <div className="p-4 bg-slate-50 border-b border-slate-200"><h3 className="font-bold text-slate-700">Storico Attività Recenti</h3></div>
         <div className="divide-y divide-slate-100">
-          {loading ? (
-             <div className="p-8 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-blue-600" /></div>
-          ) : reports.length === 0 ? (
-             <div className="p-8 text-center text-slate-400">Nessun report giornaliero compilato ancora.</div>
-          ) : (
+          {loading ? <div className="p-8 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-blue-600" /></div> : reports.length === 0 ? <div className="p-8 text-center text-slate-400">Nessun report giornaliero compilato ancora.</div> : 
             reports.map(report => (
               <div key={report.id} className="p-4 hover:bg-slate-50 transition-colors flex flex-col sm:flex-row gap-4 justify-between items-start">
                 <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="font-bold text-blue-700 text-sm bg-blue-50 px-2 py-0.5 rounded border border-blue-100">
-                      {report.taskTitle}
-                    </span>
-                    <span className="text-xs text-slate-400 flex items-center gap-1">
-                      <Calendar className="w-3 h-3" /> {new Date(report.date).toLocaleDateString('it-IT')}
-                    </span>
-                  </div>
+                  <div className="flex items-center gap-2 mb-1"><span className="font-bold text-blue-700 text-sm bg-blue-50 px-2 py-0.5 rounded border border-blue-100">{report.taskTitle}</span><span className="text-xs text-slate-400 flex items-center gap-1"><Calendar className="w-3 h-3" /> {new Date(report.date).toLocaleDateString('it-IT')}</span></div>
                   <p className="text-slate-800 text-sm mb-2">{report.description}</p>
-                  <div className="flex items-center gap-3 text-xs text-slate-500">
-                    <span className="flex items-center gap-1 font-medium text-slate-700">
-                      <User className="w-3 h-3" /> {report.userName}
-                    </span>
-                    <span className="flex items-center gap-1 font-medium text-orange-600 bg-orange-50 px-1.5 py-0.5 rounded">
-                      <Clock className="w-3 h-3" /> {report.hours} ore
-                    </span>
-                  </div>
+                  <div className="flex items-center gap-3 text-xs text-slate-500"><span className="flex items-center gap-1 font-medium text-slate-700"><User className="w-3 h-3" /> {report.userName}</span><span className="flex items-center gap-1 font-medium text-orange-600 bg-orange-50 px-1.5 py-0.5 rounded"><Clock className="w-3 h-3" /> {report.hours} ore</span></div>
                 </div>
-                {isMaster && (
-                  <button 
-                    onClick={() => deleteReport(report.id)}
-                    className="text-slate-300 hover:text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors"
-                    title="Elimina Report"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                )}
+                {isMaster && <button onClick={() => deleteReport(report.id)} className="text-slate-300 hover:text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors" title="Elimina Report"><Trash2 className="w-4 h-4" /></button>}
               </div>
             ))
-          )}
+          }
         </div>
       </div>
     </div>
   );
 }
 
-// --- VISTA LISTA ATTIVITÀ (MODIFICATA PER CLICK E PERMESSI) ---
+// --- VISTA LISTA ATTIVITÀ e VISTA MATERIALI (Resta invariato) ---
+// Utilizzo le stesse funzioni precedenti, TasksView e MaterialsView non richiedono modifiche sostanziali
+// se non l'integrazione fluida nel resto dell'app, che è garantita dalla struttura attuale.
+
 function TasksView({ user, userData, isMaster, onSelectTask }) {
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -848,7 +806,6 @@ function TasksView({ user, userData, isMaster, onSelectTask }) {
 
   return (
     <div className="space-y-6">
-      {/* BOTTONE CREAZIONE SOLO PER MASTER */}
       {isMaster && !isFormOpen && (
         <button onClick={() => setIsFormOpen(true)} className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-medium shadow-sm flex items-center justify-center gap-2 transition-all">
           <Plus className="w-5 h-5" /> Registra Nuova Attività
@@ -876,11 +833,7 @@ function TasksView({ user, userData, isMaster, onSelectTask }) {
         {loading ? <div className="text-center py-10"><Loader2 className="w-8 h-8 text-blue-600 animate-spin mx-auto" /></div> : tasks.length === 0 ? 
           <div className="text-center py-16 bg-white rounded-2xl border border-dashed border-slate-300"><ClipboardList className="w-12 h-12 text-slate-300 mx-auto mb-3" /><h3 className="text-slate-900 font-medium">Nessuna attività registrata</h3></div> : 
           tasks.map((task) => (
-            <div 
-              key={task.id} 
-              onClick={() => onSelectTask(task)} // CLICK PER APRIRE DETTAGLIO
-              className={`group cursor-pointer relative bg-white rounded-xl border p-5 transition-all hover:ring-2 hover:ring-blue-500 hover:border-transparent hover:shadow-lg ${task.completed ? 'border-slate-100 bg-slate-50 opacity-75' : 'border-slate-200'}`}
-            >
+            <div key={task.id} onClick={() => onSelectTask(task)} className={`group cursor-pointer relative bg-white rounded-xl border p-5 transition-all hover:ring-2 hover:ring-blue-500 hover:border-transparent hover:shadow-lg ${task.completed ? 'border-slate-100 bg-slate-50 opacity-75' : 'border-slate-200'}`}>
               <div className="flex items-start gap-4">
                 <button onClick={(e) => toggleTask(task, e)} className={`mt-1 shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${task.completed ? 'bg-green-500 border-green-500 text-white' : 'border-slate-300 text-transparent hover:border-green-500'}`}><CheckCircle className="w-3.5 h-3.5" strokeWidth={3} /></button>
                 <div className="flex-1">
@@ -905,7 +858,6 @@ function TasksView({ user, userData, isMaster, onSelectTask }) {
   );
 }
 
-// --- VISTA MATERIALI ---
 function MaterialsView({ user, userData, isMaster, context = 'warehouse', taskId = null }) {
   const [materials, setMaterials] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -918,10 +870,7 @@ function MaterialsView({ user, userData, isMaster, context = 'warehouse', taskId
     const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'materials'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      const filtered = context === 'site' 
-        ? data.filter(item => item.taskId === taskId)
-        : data;
-      
+      const filtered = context === 'site' ? data.filter(item => item.taskId === taskId) : data;
       filtered.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
       setMaterials(filtered);
       setLoading(false);
@@ -936,7 +885,7 @@ function MaterialsView({ user, userData, isMaster, context = 'warehouse', taskId
     try {
       await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'materials'), {
         ...formData,
-        taskId: context === 'site' ? taskId : null, // Associa al cantiere se siamo nel contesto sito
+        taskId: context === 'site' ? taskId : null,
         createdAt: serverTimestamp(),
         userId: user.uid,
         authorName: userData?.name
@@ -963,20 +912,11 @@ function MaterialsView({ user, userData, isMaster, context = 'warehouse', taskId
 
       {isFormOpen && (
         <div className="bg-white p-6 rounded-2xl shadow-lg border border-blue-100 animate-in fade-in slide-in-from-top-4">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="font-semibold text-slate-800 flex items-center gap-2"><Package className="w-5 h-5 text-blue-600" /> Scheda Materiale</h3>
-            <button onClick={() => setIsFormOpen(false)} className="text-slate-400 hover:text-slate-600 text-sm">Annulla</button>
-          </div>
+          <div className="flex justify-between items-center mb-4"><h3 className="font-semibold text-slate-800 flex items-center gap-2"><Package className="w-5 h-5 text-blue-600" /> Scheda Materiale</h3><button onClick={() => setIsFormOpen(false)} className="text-slate-400 hover:text-slate-600 text-sm">Annulla</button></div>
           <form onSubmit={handleAddMaterial} className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="col-span-1 md:col-span-2 space-y-1">
-                <label className="text-xs font-bold text-slate-500 uppercase">Descrizione Articolo</label>
-                <input required name="name" value={formData.name} onChange={handleChange} className="w-full px-3 py-2.5 bg-slate-50 border rounded-lg" placeholder="Es. Cavo FG16 3x2.5" />
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-500 uppercase">Codice</label>
-                <input name="code" value={formData.code} onChange={handleChange} className="w-full px-3 py-2.5 bg-slate-50 border rounded-lg" placeholder="Opzionale" />
-              </div>
+              <div className="col-span-1 md:col-span-2 space-y-1"><label className="text-xs font-bold text-slate-500 uppercase">Descrizione Articolo</label><input required name="name" value={formData.name} onChange={handleChange} className="w-full px-3 py-2.5 bg-slate-50 border rounded-lg" /></div>
+              <div className="space-y-1"><label className="text-xs font-bold text-slate-500 uppercase">Codice</label><input name="code" value={formData.code} onChange={handleChange} className="w-full px-3 py-2.5 bg-slate-50 border rounded-lg" /></div>
             </div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                <div className="space-y-1"><label className="text-xs font-bold text-slate-500 uppercase">Fornitore</label><input required name="supplier" value={formData.supplier} onChange={handleChange} className="w-full px-3 py-2.5 bg-slate-50 border rounded-lg" /></div>
@@ -1021,7 +961,6 @@ function MaterialsView({ user, userData, isMaster, context = 'warehouse', taskId
   );
 }
 
-// --- LOGIN SCREEN (CON LOGO) ---
 function AuthScreen() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -1036,110 +975,38 @@ function AuthScreen() {
     const cleanUsername = username.trim().toLowerCase();
     const email = `${cleanUsername}@impresadaria.app`;
 
-    if (password.length < 6) {
-      setError("Password troppo corta (min. 6 caratteri).");
-      setIsSubmitting(false);
-      return;
-    }
+    if (password.length < 6) { setError("Password troppo corta (min. 6 caratteri)."); setIsSubmitting(false); return; }
 
-    try {
-      await signInWithEmailAndPassword(auth, email, password);
-    } catch (loginError) {
+    try { await signInWithEmailAndPassword(auth, email, password); } 
+    catch (loginError) {
       if (loginError.code === 'auth/user-not-found' || loginError.code === 'auth/invalid-credential') {
-        try {
-          await createUserWithEmailAndPassword(auth, email, password);
-        } catch (regError) {
-          setError("Errore creazione: " + regError.message);
-        }
-      } else if (loginError.code === 'auth/wrong-password') {
-        setError("Password errata.");
-      } else {
-        setError("Errore: " + loginError.message);
-      }
-    } finally {
-      setIsSubmitting(false);
-    }
+        try { await createUserWithEmailAndPassword(auth, email, password); } catch (regError) { setError("Errore creazione: " + regError.message); }
+      } else if (loginError.code === 'auth/wrong-password') { setError("Password errata."); } else { setError("Errore: " + loginError.message); }
+    } finally { setIsSubmitting(false); }
   };
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-slate-100">
       <div className="max-w-md w-full bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
-        {/* HEADER BRANDIZZATO IMPRESA D'ARIA SRL */}
         <div className="bg-blue-800 p-10 text-center relative overflow-hidden">
           <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-blue-700 to-indigo-900 opacity-95"></div>
-          
           <div className="relative z-10 flex flex-col items-center">
-            
-            {/* LOGO BOX */}
             <div className="w-24 h-24 bg-white rounded-2xl flex items-center justify-center mb-5 shadow-2xl transform hover:scale-105 transition-transform duration-300 overflow-hidden p-2">
-              {!imgError ? (
-                <img 
-                  src="logo.jpg" 
-                  alt="Logo" 
-                  className="w-full h-full object-contain"
-                  onError={() => setImgError(true)} 
-                />
-              ) : (
-                <Building2 className="w-12 h-12 text-blue-800" />
-              )}
+              {!imgError ? <img src="logo.jpg" alt="Logo" className="w-full h-full object-contain" onError={() => setImgError(true)} /> : <Building2 className="w-12 h-12 text-blue-800" />}
             </div>
-            
             <h1 className="text-3xl font-black text-white tracking-tight mb-1">ImpresadariAPP</h1>
             <div className="h-1 w-20 bg-blue-400 rounded-full mb-3"></div>
-            <p className="text-blue-100 text-sm font-medium tracking-wide">
-              L'app ufficiale di<br/>
-              <span className="font-bold text-white text-base">Impresa d'Aria Srl</span>
-            </p>
+            <p className="text-blue-100 text-sm font-medium tracking-wide">L'app ufficiale di<br/><span className="font-bold text-white text-base">Impresa d'Aria Srl</span></p>
           </div>
         </div>
-
         <div className="p-8">
           {error && <div className="mb-6 p-4 bg-red-50 border-l-4 border-red-500 rounded-r-lg text-red-700 text-sm font-medium">{error}</div>}
-          
           <form onSubmit={handleAuth} className="space-y-5">
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-500 uppercase tracking-wider ml-1">Username</label>
-              <div className="relative group">
-                <User className="w-5 h-5 text-slate-400 absolute left-3 top-3.5 group-focus-within:text-blue-600 transition-colors" />
-                <input 
-                  type="text" 
-                  required 
-                  value={username} 
-                  onChange={(e) => setUsername(e.target.value)} 
-                  className="w-full pl-10 pr-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium text-slate-700 placeholder:text-slate-400" 
-                  placeholder="es. a.cusimano" 
-                  autoCapitalize="none" 
-                />
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-500 uppercase tracking-wider ml-1">Password</label>
-              <div className="relative group">
-                <Lock className="w-5 h-5 text-slate-400 absolute left-3 top-3.5 group-focus-within:text-blue-600 transition-colors" />
-                <input 
-                  type="password" 
-                  required 
-                  value={password} 
-                  onChange={(e) => setPassword(e.target.value)} 
-                  className="w-full pl-10 pr-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium text-slate-700" 
-                  placeholder="••••••" 
-                />
-              </div>
-            </div>
-
-            <button 
-              type="submit" 
-              disabled={isSubmitting} 
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-xl transition-all shadow-lg shadow-blue-500/30 flex items-center justify-center gap-2 mt-6"
-            >
-              {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Accedi'}
-            </button>
+            <div className="space-y-1.5"><label className="text-xs font-bold text-slate-500 uppercase tracking-wider ml-1">Username</label><div className="relative group"><User className="w-5 h-5 text-slate-400 absolute left-3 top-3.5 group-focus-within:text-blue-600 transition-colors" /><input type="text" required value={username} onChange={(e) => setUsername(e.target.value)} className="w-full pl-10 pr-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium text-slate-700" placeholder="es. a.cusimano" autoCapitalize="none" /></div></div>
+            <div className="space-y-1.5"><label className="text-xs font-bold text-slate-500 uppercase tracking-wider ml-1">Password</label><div className="relative group"><Lock className="w-5 h-5 text-slate-400 absolute left-3 top-3.5 group-focus-within:text-blue-600 transition-colors" /><input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} className="w-full pl-10 pr-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium text-slate-700" placeholder="••••••" /></div></div>
+            <button type="submit" disabled={isSubmitting} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-xl transition-all shadow-lg shadow-blue-500/30 flex items-center justify-center gap-2 mt-6">{isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Accedi'}</button>
           </form>
-          
-          <div className="mt-8 text-center border-t border-slate-100 pt-6">
-            <p className="text-xs text-slate-400">© 2024 Impresa d'Aria Srl. Tutti i diritti riservati.</p>
-          </div>
+          <div className="mt-8 text-center border-t border-slate-100 pt-6"><p className="text-xs text-slate-400">© 2024 Impresa d'Aria Srl. Tutti i diritti riservati.</p></div>
         </div>
       </div>
     </div>
