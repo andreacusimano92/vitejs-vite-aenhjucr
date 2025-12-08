@@ -17,7 +17,9 @@ import {
   doc, 
   query, 
   onSnapshot, 
-  serverTimestamp, 
+  serverTimestamp,
+  arrayUnion,
+  arrayRemove 
 } from 'firebase/firestore';
 import { 
   Activity, 
@@ -53,7 +55,11 @@ import {
   ShoppingCart,
   CheckSquare,
   Sparkles,
-  Bot
+  Bot,
+  Users,
+  FileCheck,
+  Download,
+  CalendarRange
 } from 'lucide-react';
 
 // --- CONFIGURAZIONE ---
@@ -239,9 +245,12 @@ function TaskDetailView({ task, user, userData, isMaster, onBack }) {
   const [isEditing, setIsEditing] = useState(false);
   const [editData, setEditData] = useState({ title: task.title, client: task.client, description: task.description || '' });
 
-  // Lista tab dinamica in base al ruolo
+  // Lista tab dinamica
   const tabs = [
     { id: 'overview', label: 'Panoramica', icon: Activity },
+    { id: 'team', label: 'Squadra', icon: Users }, // NUOVO
+    { id: 'documents', label: 'Documenti', icon: FileCheck }, // NUOVO
+    { id: 'schedule', label: 'Crono', icon: CalendarRange }, // NUOVO
     { id: 'materials', label: 'Materiali', icon: Package },
     { id: 'requests', label: 'Richieste', icon: ShoppingCart },
     { id: 'photos', label: 'Foto', icon: Camera },
@@ -307,11 +316,248 @@ function TaskDetailView({ task, user, userData, isMaster, onBack }) {
 
       <div className="min-h-[400px]">
         {activeSection === 'overview' && <SiteOverview task={task} isMaster={isMaster} />}
+        {activeSection === 'team' && <SiteTeam task={task} isMaster={isMaster} />}
+        {activeSection === 'documents' && <SiteDocuments task={task} user={user} isMaster={isMaster} />}
+        {activeSection === 'schedule' && <SiteSchedule task={task} isMaster={isMaster} />}
         {activeSection === 'materials' && <MaterialsView user={user} userData={userData} isMaster={isMaster} context="site" taskId={task.id} />}
         {activeSection === 'requests' && <MaterialRequestsView user={user} userData={userData} isMaster={isMaster} task={task} />} 
         {activeSection === 'photos' && <SitePhotos taskId={task.id} user={user} userData={userData} isMaster={isMaster} />}
-        {/* Contabilità solo se master, doppia protezione (UI e logica render) */}
         {activeSection === 'accounting' && isMaster && <SiteAccounting taskId={task.id} user={user} isMaster={isMaster} />}
+      </div>
+    </div>
+  );
+}
+
+// --- 1. NUOVO COMPONENTE: DOCUMENTI CANTIERE ---
+function SiteDocuments({ task, user, isMaster }) {
+  const [docs, setDocs] = useState([]);
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef(null);
+  const [docType, setDocType] = useState('Tecnico');
+
+  useEffect(() => {
+    const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'documents'));
+    const unsub = onSnapshot(q, (snap) => {
+      const all = snap.docs.map(d => ({id: d.id, ...d.data()}));
+      setDocs(all.filter(d => d.taskId === task.id).sort((a,b) => b.createdAt?.seconds - a.createdAt?.seconds));
+    });
+    return () => unsub();
+  }, [task.id]);
+
+  const handleUpload = async (e) => {
+    const file = e.target.files[0];
+    if(!file) return;
+    if(file.size > 1000000) { alert("File troppo grande (Max 1MB)"); return; }
+    
+    setUploading(true);
+    const reader = new FileReader();
+    reader.onloadend = async () => {
+      try {
+        await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'documents'), {
+          taskId: task.id,
+          name: file.name,
+          type: docType,
+          data: reader.result,
+          uploadedBy: user.email.split('@')[0],
+          createdAt: serverTimestamp()
+        });
+      } catch(err) { alert("Errore caricamento"); }
+      setUploading(false);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const deleteDocFile = async (id) => {
+    if(!window.confirm("Eliminare documento?")) return;
+    try { await deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'documents', id)); } catch(err) {}
+  };
+
+  return (
+    <div className="space-y-6">
+      {isMaster && (
+        <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl flex flex-col sm:flex-row gap-4 items-center justify-between">
+          <div className="flex gap-2 items-center w-full sm:w-auto">
+            <select value={docType} onChange={e=>setDocType(e.target.value)} className="bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none">
+              <option>Tecnico</option><option>POS / Sicurezza</option><option>Grafico</option><option>Contratto</option>
+            </select>
+            <input type="file" ref={fileRef} className="hidden" onChange={handleUpload} accept=".pdf,.jpg,.png,.doc,.docx" />
+            <button onClick={() => fileRef.current?.click()} disabled={uploading} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 hover:bg-blue-700 w-full sm:w-auto justify-center">
+              {uploading ? <Loader2 className="w-4 h-4 animate-spin"/> : <Plus className="w-4 h-4"/>} Carica Documento
+            </button>
+          </div>
+          <p className="text-xs text-slate-400">PDF, Immagini (Max 1MB)</p>
+        </div>
+      )}
+
+      <div className="grid gap-3">
+        {docs.length === 0 ? <p className="text-center py-8 text-slate-400 text-sm">Nessun documento presente.</p> : 
+          docs.map(d => (
+            <div key={d.id} className="flex items-center justify-between p-4 bg-white border border-slate-200 rounded-xl hover:shadow-sm transition-shadow">
+              <div className="flex items-center gap-4">
+                <div className={`p-3 rounded-lg ${d.type === 'POS / Sicurezza' ? 'bg-red-50 text-red-600' : 'bg-blue-50 text-blue-600'}`}>
+                  <FileText className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="font-medium text-slate-800 text-sm">{d.name}</h4>
+                  <p className="text-xs text-slate-500">{d.type} • Caricato da {d.uploadedBy}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <a href={d.data} download={d.name} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"><Download className="w-4 h-4" /></a>
+                {isMaster && <button onClick={() => deleteDocFile(d.id)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"><Trash2 className="w-4 h-4" /></button>}
+              </div>
+            </div>
+          ))
+        }
+      </div>
+    </div>
+  );
+}
+
+// --- 2. NUOVO COMPONENTE: SQUADRA CANTIERE ---
+function SiteTeam({ task, isMaster }) {
+  const [assigned, setAssigned] = useState(task.assignedTeam || []);
+  const [selectedUser, setSelectedUser] = useState('');
+
+  // Sincronizza stato locale con task prop se cambia
+  useEffect(() => { setAssigned(task.assignedTeam || []); }, [task.assignedTeam]);
+
+  const handleAssign = async () => {
+    if(!selectedUser) return;
+    try {
+      await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'tasks', task.id), {
+        assignedTeam: arrayUnion(selectedUser)
+      });
+      setSelectedUser('');
+    } catch(err) { alert(err.message); }
+  };
+
+  const handleRemove = async (name) => {
+    if(!window.confirm("Rimuovere dalla squadra?")) return;
+    try {
+      await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'tasks', task.id), {
+        assignedTeam: arrayRemove(name)
+      });
+    } catch(err) { alert(err.message); }
+  };
+
+  const allEmployees = Object.values(USERS_CONFIG).filter(u => u.role === 'Dipendente');
+
+  return (
+    <div className="space-y-6">
+      {isMaster && (
+        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex gap-2">
+          <select value={selectedUser} onChange={e=>setSelectedUser(e.target.value)} className="flex-1 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none">
+            <option value="">-- Seleziona Dipendente --</option>
+            {allEmployees.map(u => (
+              <option key={u.name} value={u.name} disabled={assigned.includes(u.name)}>{u.name}</option>
+            ))}
+          </select>
+          <button onClick={handleAssign} disabled={!selectedUser} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700">Assegna</button>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+        {assigned.length === 0 ? <p className="col-span-full text-center py-8 text-slate-400 text-sm">Nessun dipendente assegnato a questo cantiere.</p> :
+          assigned.map(name => (
+            <div key={name} className="flex items-center justify-between p-3 bg-white border border-slate-200 rounded-xl">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-xs">{name.charAt(0)}</div>
+                <span className="text-sm font-medium text-slate-700">{name}</span>
+              </div>
+              {isMaster && <button onClick={() => handleRemove(name)} className="text-slate-300 hover:text-red-500"><X className="w-4 h-4" /></button>}
+            </div>
+          ))
+        }
+      </div>
+    </div>
+  );
+}
+
+// --- 3. NUOVO COMPONENTE: CRONOPROGRAMMA ---
+function SiteSchedule({ task, isMaster }) {
+  const [schedule, setSchedule] = useState(task.schedule || []);
+  const [newPhase, setNewPhase] = useState({ name: '', start: '', end: '' });
+  const [generating, setGenerating] = useState(false);
+
+  useEffect(() => { setSchedule(task.schedule || []); }, [task.schedule]);
+
+  const addPhase = async (e) => {
+    e.preventDefault();
+    if(!newPhase.name || !newPhase.start || !newPhase.end) return;
+    const updatedSchedule = [...schedule, newPhase].sort((a,b) => new Date(a.start) - new Date(b.start));
+    try {
+      await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'tasks', task.id), { schedule: updatedSchedule });
+      setNewPhase({ name: '', start: '', end: '' });
+    } catch(err) { alert(err.message); }
+  };
+
+  const removePhase = async (index) => {
+    const updated = schedule.filter((_, i) => i !== index);
+    try { await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'tasks', task.id), { schedule: updated }); } catch(err) {}
+  };
+
+  const generateWithAI = async () => {
+    setGenerating(true);
+    const prompt = `Crea un cronoprogramma realistico (JSON array di oggetti con campi: name, start (YYYY-MM-DD), end (YYYY-MM-DD)) per questo cantiere: "${task.title}". Descrizione: "${task.description}". Oggi è ${new Date().toISOString().split('T')[0]}. Genera 4-5 fasi sequenziali logiche. Restituisci SOLO il JSON array puro senza markdown.`;
+    
+    try {
+      const res = await callGeminiAI(prompt);
+      const cleanJson = res.replace(/```json|```/g, '').trim();
+      const aiPhases = JSON.parse(cleanJson);
+      await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'tasks', task.id), { schedule: aiPhases });
+    } catch(err) { alert("Errore AI: Riprova"); }
+    setGenerating(false);
+  };
+
+  return (
+    <div className="space-y-6">
+      {isMaster && (
+        <div className="space-y-4">
+          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+            <h4 className="text-sm font-bold text-slate-700 mb-3">Aggiungi Fase Manuale</h4>
+            <form onSubmit={addPhase} className="flex flex-col md:flex-row gap-2">
+              <input type="text" placeholder="Fase (es. Demolizioni)" className="flex-1 border rounded-lg px-3 py-2 text-sm" value={newPhase.name} onChange={e=>setNewPhase({...newPhase, name: e.target.value})} />
+              <input type="date" className="border rounded-lg px-3 py-2 text-sm" value={newPhase.start} onChange={e=>setNewPhase({...newPhase, start: e.target.value})} />
+              <input type="date" className="border rounded-lg px-3 py-2 text-sm" value={newPhase.end} onChange={e=>setNewPhase({...newPhase, end: e.target.value})} />
+              <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700">Aggiungi</button>
+            </form>
+          </div>
+          <button onClick={generateWithAI} disabled={generating} className="w-full bg-gradient-to-r from-violet-600 to-indigo-600 text-white p-3 rounded-xl font-medium flex items-center justify-center gap-2 hover:shadow-lg transition-all">
+            {generating ? <Loader2 className="w-5 h-5 animate-spin"/> : <Sparkles className="w-5 h-5"/>} Genera Cronoprogramma con AI
+          </button>
+        </div>
+      )}
+
+      {/* Visualizzazione GANTT Semplificata */}
+      <div className="space-y-2">
+        {schedule.length === 0 ? <p className="text-center py-8 text-slate-400 text-sm">Nessuna fase pianificata.</p> : 
+          schedule.map((phase, idx) => {
+            const today = new Date();
+            const start = new Date(phase.start);
+            const end = new Date(phase.end);
+            const isLate = today > end && !task.completed;
+            const isActive = today >= start && today <= end;
+
+            return (
+              <div key={idx} className="relative bg-white border border-slate-200 p-4 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 overflow-hidden">
+                {/* Indicatore Stato Lato */}
+                <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${isLate ? 'bg-red-500' : isActive ? 'bg-blue-500' : 'bg-slate-300'}`}></div>
+                
+                <div className="pl-2">
+                  <h4 className="font-bold text-slate-800 text-sm">{phase.name}</h4>
+                  <div className="flex items-center gap-3 mt-1 text-xs text-slate-500">
+                    <span className="flex items-center gap-1"><Calendar className="w-3 h-3"/> {start.toLocaleDateString()}</span>
+                    <span className="text-slate-300">→</span>
+                    <span className={`flex items-center gap-1 ${isLate ? 'text-red-600 font-bold' : ''}`}><Calendar className="w-3 h-3"/> {end.toLocaleDateString()}</span>
+                  </div>
+                </div>
+
+                {isMaster && <button onClick={() => removePhase(idx)} className="text-slate-300 hover:text-red-500 self-end sm:self-center"><Trash2 className="w-4 h-4"/></button>}
+              </div>
+            );
+          })
+        }
       </div>
     </div>
   );
@@ -357,7 +603,7 @@ function SiteOverview({ task, isMaster }) {
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="bg-blue-50 p-6 rounded-xl border border-blue-100 text-blue-800"><h3 className="font-semibold text-lg flex items-center gap-2"><Wrench className="w-5 h-5" /> Stato Lavori</h3><p className="text-sm mt-2 opacity-80">Sezione pronta per visualizzare lo stato di avanzamento e le scadenze prossime.</p></div>
-        <div className="bg-indigo-50 p-6 rounded-xl border border-indigo-100 text-indigo-800"><h3 className="font-semibold text-lg flex items-center gap-2"><User className="w-5 h-5" /> Squadra</h3><p className="text-sm mt-2 opacity-80">Qui verranno visualizzati i dipendenti assegnati a questo cantiere.</p></div>
+        <div className="bg-indigo-50 p-6 rounded-xl border border-indigo-100 text-indigo-800"><h3 className="font-semibold text-lg flex items-center gap-2"><User className="w-5 h-5" /> Squadra</h3><p className="text-sm mt-2 opacity-80">{task.assignedTeam ? `${task.assignedTeam.length} dipendenti assegnati` : 'Nessun dipendente assegnato'}</p></div>
       </div>
     </div>
   );
