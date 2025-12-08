@@ -106,8 +106,8 @@ const callGeminiAI = async (prompt) => {
 const USERS_CONFIG = {
   'a.cusimano': { role: 'Master', name: 'Andrea Cusimano' },
   'f.gentile': { role: 'Master', name: 'Francesco Gentile' },
-  'm.gentile': { role: 'Dipendente', name: 'Cosimo Gentile' },
-  'g.gentile': { role: 'Dipendente', name: 'Giuseppe Gentile' },
+  'm.gentile': { role: 'Master', name: 'Cosimo Gentile' },
+  'g.gentile': { role: 'Master', name: 'Giuseppe Gentile' },
   'f.devincentis': { role: 'Dipendente', name: 'Francesco De Vincentis' },
   'a.ingrosso': { role: 'Dipendente', name: 'Antonio Ingrosso' },
   'g.granio': { role: 'Dipendente', name: 'Giuseppe Granio' },
