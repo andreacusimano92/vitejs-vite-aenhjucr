@@ -16,8 +16,7 @@ import {
   orderBy, 
   serverTimestamp,
   updateDoc,
-  initializeFirestore,
-  limit
+  initializeFirestore
 } from 'firebase/firestore';
 import { 
   Briefcase, ClipboardList, HardHat, Image as ImageIcon, Plus, DollarSign, 
@@ -26,27 +25,28 @@ import {
   QrCode, Info, History, Settings, Wifi, WifiOff
 } from 'lucide-react';
 
-// --- TUE CHIAVI REALI ---
+// --- INCOLLA QUI LE TUE NUOVE CHIAVI DEL PROGETTO "ImpresaDaria-App" ---
 const firebaseConfig = {
-  apiKey: "AIzaSyAatMz8gvKDAuDidBn08MPoCjTyufkeE50",
-  authDomain: "impresa-d-aria-srl.firebaseapp.com",
-  projectId: "impresa-d-aria-srl",
-  storageBucket: "impresa-d-aria-srl.firebasestorage.app",
-  messagingSenderId: "89553795640",
-  appId: "1:89553795640:web:631d8a4a8173570630c4cd",
-  measurementId: "G-P72C5LBDHH"
+  apiKey: "AIzaSyDVve-jM2etXrONNy0qycABczE_d_s7l1s",
+  authDomain: "impresadariapp.firebaseapp.com",
+  projectId: "impresadariapp",
+  storageBucket: "impresadariapp.firebasestorage.app",
+  messagingSenderId: "974775191860",
+  appId: "1:974775191860:web:e221d61cdd46eb3cd03d61",
+  measurementId: "G-N8KSTTS8ET"
 };
 
-// Inizializzazione Diretta
+// Inizializzazione
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
-const db = initializeFirestore(app, { experimentalForceLongPolling: true });
+
+// FIX: Connessione standard (funziona con il database predefinito del nuovo progetto)
+const db = initializeFirestore(app, {
+  experimentalForceLongPolling: true,
+}); 
 
 // --- UTILS ---
-const callGemini = async (prompt: string) => {
-  /* Lascia vuoto per ora */ 
-  return "Analisi AI simulata per test."; 
-};
+const callGemini = async (prompt: string) => { return "Analisi AI non disponibile."; };
 
 const logActivity = async (username: string, action: string, details: string) => {
   try { await addDoc(collection(db, 'logs'), { username, action, details, timestamp: serverTimestamp() }); } catch (e) { console.error(e); }
@@ -73,7 +73,6 @@ const AUTHORIZED_USERS = [
 
 // --- COMPONENTS ---
 
-// Login Screen
 const AuthScreen = ({ onLogin, connectionStatus }: { onLogin: (u: UserProfile) => void, connectionStatus: string }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -97,13 +96,10 @@ const AuthScreen = ({ onLogin, connectionStatus }: { onLogin: (u: UserProfile) =
           <h1 className="text-2xl font-bold text-slate-800 uppercase">Impresa D'Aria Srl</h1>
           <p className="text-sky-600 font-medium">Gestione Cantieri</p>
         </div>
-        
-        {/* Connection Status Monitor */}
-        <div className={`p-3 rounded-lg text-sm mb-6 flex items-center gap-2 ${connectionStatus === 'connected' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-            {connectionStatus === 'connected' ? <Wifi size={16}/> : <WifiOff size={16}/>}
-            {connectionStatus === 'connected' ? 'Database Connesso' : `Disconnesso: ${connectionStatus}`}
+        <div className={`p-3 rounded-lg text-sm mb-6 flex items-center gap-2 ${connectionStatus === 'connected' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
+            {connectionStatus === 'connected' ? <Wifi size={16}/> : <Loader2 className="animate-spin" size={16}/>}
+            {connectionStatus === 'connected' ? 'Sistema Online' : `Stato: ${connectionStatus}`}
         </div>
-
         <div className="space-y-4">
           <input type="text" value={username} onChange={e => setUsername(e.target.value)} className="w-full p-3 border rounded-lg" placeholder="Username" />
           <input type="password" value={password} onChange={e => setPassword(e.target.value)} className="w-full p-3 border rounded-lg" placeholder="Password" />
@@ -115,37 +111,33 @@ const AuthScreen = ({ onLogin, connectionStatus }: { onLogin: (u: UserProfile) =
   );
 };
 
-// Main App
 export default function ImpiantiApp() {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [activeProject, setActiveProject] = useState<Project | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
-  const [connectionStatus, setConnectionStatus] = useState<string>('checking...');
+  const [connectionStatus, setConnectionStatus] = useState<string>('Connessione al database...');
 
-  // Auth & Connection Check
   useEffect(() => {
     const init = async () => {
       try {
         await signInAnonymously(auth);
       } catch (e: any) {
         console.error("Auth Error", e);
-        setConnectionStatus(e.code === 'auth/operation-not-allowed' ? 'ERRORE: Abilita "Anonimo" in Firebase Console' : e.message);
+        setConnectionStatus(e.code === 'auth/operation-not-allowed' ? 'ERRORE: Abilita "Anonimo" su Firebase' : e.message);
       }
     };
     init();
-
     onAuthStateChanged(auth, (u) => {
       if (u) {
-        setConnectionStatus('connected');
         const saved = localStorage.getItem('impianti_user_v2');
         if (saved) setUser(JSON.parse(saved));
       }
     });
   }, []);
 
-  // Data Fetching
   useEffect(() => {
     if (!auth.currentUser) return;
+    // Usa la collezione 'projects' nel DB di default
     const unsub = onSnapshot(collection(db, 'projects'), 
       (snap) => {
         setProjects(snap.docs.map(d => ({ id: d.id, ...d.data() } as Project)).sort((a,b) => (b.createdAt?.seconds||0) - (a.createdAt?.seconds||0)));
@@ -153,7 +145,7 @@ export default function ImpiantiApp() {
       },
       (err) => {
         console.error(err);
-        setConnectionStatus(err.code === 'permission-denied' ? 'ERRORE: Regole Database Bloccate' : err.message);
+        setConnectionStatus(`ERRORE DB: ${err.code}. Verifica le Regole su Firebase.`);
       }
     );
     return () => unsub();
@@ -199,10 +191,9 @@ export default function ImpiantiApp() {
         </div>
       </nav>
 
-      {/* Status Bar for Master */}
-      {user.role === 'master' && (
-          <div className={`text-center text-xs p-1 ${connectionStatus === 'connected' ? 'bg-green-100 text-green-800' : 'bg-red-500 text-white'}`}>
-              Stato Database: {connectionStatus === 'connected' ? 'ONLINE (impresa-d-aria-srl)' : connectionStatus}
+      {user.role === 'master' && connectionStatus !== 'connected' && (
+          <div className="bg-red-600 text-white text-xs p-2 text-center font-bold">
+              {connectionStatus}
           </div>
       )}
 
@@ -244,8 +235,6 @@ export default function ImpiantiApp() {
     </div>
   );
 }
-
-// --- SUB COMPONENTS ---
 
 const ProjectDetail = ({ project, user, onBack }: any) => {
     const [tab, setTab] = useState('materials');
