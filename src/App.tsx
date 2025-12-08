@@ -118,11 +118,11 @@ function Dashboard({ user, userData }) {
     <div>
       {/* Header */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-20 shadow-sm">
-        <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="bg-blue-600 p-2 rounded-lg text-white"><LayoutDashboard className="w-5 h-5" /></div>
             <div>
-              <h1 className="font-bold text-slate-800 leading-tight hidden sm:block">Impresadaria</h1>
+              <h1 className="font-bold text-slate-800 leading-tight hidden sm:block">ImpresadariAPP</h1>
               <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full ${isMaster ? 'bg-purple-100 text-purple-700' : 'bg-slate-100 text-slate-600'}`}>{userData?.role}</span>
             </div>
           </div>
@@ -553,37 +553,72 @@ function AuthScreen() {
   return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-slate-100">
       <div className="max-w-md w-full bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
-        <div className="bg-blue-700 p-8 text-center relative overflow-hidden">
-          <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-blue-600 to-blue-800 opacity-90"></div>
-          <div className="relative z-10">
-            <div className="inline-flex items-center justify-center w-14 h-14 bg-white/20 rounded-2xl mb-4 backdrop-blur-md shadow-inner">
-              <Activity className="w-7 h-7 text-white" />
+        {/* HEADER BRANDIZZATO IMPRESA D'ARIA SRL */}
+        <div className="bg-blue-800 p-10 text-center relative overflow-hidden">
+          <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-blue-700 to-indigo-900 opacity-95"></div>
+          
+          <div className="relative z-10 flex flex-col items-center">
+            {/* Logo Placeholder - Sostituibile con immagine reale se disponibile */}
+            <div className="w-20 h-20 bg-white rounded-2xl flex items-center justify-center mb-5 shadow-2xl transform hover:scale-105 transition-transform duration-300">
+              <Building2 className="w-10 h-10 text-blue-800" />
             </div>
-            <h1 className="text-3xl font-bold text-white tracking-tight">Impresadaria</h1>
-            <p className="text-blue-100 text-sm mt-2 font-medium">Accesso Personale</p>
+            
+            <h1 className="text-3xl font-black text-white tracking-tight mb-1">ImpresadariAPP</h1>
+            <div className="h-1 w-20 bg-blue-400 rounded-full mb-3"></div>
+            <p className="text-blue-100 text-sm font-medium tracking-wide">
+              L'app ufficiale di<br/>
+              <span className="font-bold text-white text-base">Impresa d'Aria Srl</span>
+            </p>
           </div>
         </div>
+
         <div className="p-8">
-          {error && <div className="mb-6 p-4 bg-red-50 border-l-4 border-red-500 rounded-r-lg text-red-700 text-sm">{error}</div>}
+          {error && <div className="mb-6 p-4 bg-red-50 border-l-4 border-red-500 rounded-r-lg text-red-700 text-sm font-medium">{error}</div>}
+          
           <form onSubmit={handleAuth} className="space-y-5">
             <div className="space-y-1.5">
               <label className="text-xs font-bold text-slate-500 uppercase tracking-wider ml-1">Username</label>
               <div className="relative group">
                 <User className="w-5 h-5 text-slate-400 absolute left-3 top-3.5 group-focus-within:text-blue-600 transition-colors" />
-                <input type="text" required value={username} onChange={(e) => setUsername(e.target.value)} className="w-full pl-10 pr-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium text-slate-700" placeholder="es. a.cusimano" autoCapitalize="none" />
+                <input 
+                  type="text" 
+                  required 
+                  value={username} 
+                  onChange={(e) => setUsername(e.target.value)} 
+                  className="w-full pl-10 pr-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium text-slate-700 placeholder:text-slate-400" 
+                  placeholder="es. a.cusimano" 
+                  autoCapitalize="none" 
+                />
               </div>
             </div>
+
             <div className="space-y-1.5">
               <label className="text-xs font-bold text-slate-500 uppercase tracking-wider ml-1">Password</label>
               <div className="relative group">
                 <Lock className="w-5 h-5 text-slate-400 absolute left-3 top-3.5 group-focus-within:text-blue-600 transition-colors" />
-                <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} className="w-full pl-10 pr-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium text-slate-700" placeholder="••••••" />
+                <input 
+                  type="password" 
+                  required 
+                  value={password} 
+                  onChange={(e) => setPassword(e.target.value)} 
+                  className="w-full pl-10 pr-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium text-slate-700" 
+                  placeholder="••••••" 
+                />
               </div>
             </div>
-            <button type="submit" disabled={isSubmitting} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-xl transition-all shadow-lg shadow-blue-500/30 flex items-center justify-center gap-2 mt-4">
-              {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Entra nel Sistema'}
+
+            <button 
+              type="submit" 
+              disabled={isSubmitting} 
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-xl transition-all shadow-lg shadow-blue-500/30 flex items-center justify-center gap-2 mt-6"
+            >
+              {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Accedi'}
             </button>
           </form>
+          
+          <div className="mt-8 text-center border-t border-slate-100 pt-6">
+            <p className="text-xs text-slate-400">© 2024 Impresa d'Aria Srl. Tutti i diritti riservati.</p>
+          </div>
         </div>
       </div>
     </div>
