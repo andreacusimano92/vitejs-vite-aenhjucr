@@ -73,7 +73,8 @@ import {
   MessageSquare,
   MapPin,
   History,
-  Send
+  Send,
+  ShieldAlert
 } from 'lucide-react';
 
 // --- CONFIGURAZIONE ---
@@ -322,7 +323,7 @@ function Dashboard({ user, userData }) {
             onSelectTask={setSelectedTask} 
           />
         ) : activeTab === 'vehicles' ? (
-           <VehiclesView user={user} userData={userData} isAdmin={isAdmin} />
+           <VehiclesView user={user} userData={userData} isAdmin={isAdmin} isMaster={isMaster} />
         ) : activeTab === 'reports' ? (
            <DailyReportsView user={user} userData={userData} isMaster={isMaster} isAdmin={isAdmin} />
         ) : activeTab === 'materials' ? (
@@ -349,11 +350,13 @@ function Dashboard({ user, userData }) {
   );
 }
 
-// --- NUOVA VISTA: PARCO MEZZI ---
-function VehiclesView({ user, userData, isAdmin }) {
+// --- VISTA PARCO MEZZI (AGGIORNATA CON SCADENZE MULTIPLE) ---
+function VehiclesView({ user, userData, isAdmin, isMaster }) {
   const [vehicles, setVehicles] = useState([]);
-  const [newVehicle, setNewVehicle] = useState({ name: '', plate: '', type: 'Furgone', deadline: '' });
-  const [selectedUser, setSelectedUser] = useState('');
+  const [newVehicle, setNewVehicle] = useState({ 
+    name: '', plate: '', type: 'Furgone', 
+    insuranceDate: '', taxDate: '', inspectionDate: '' 
+  });
   const allEmployees = Object.values(USERS_CONFIG);
 
   useEffect(() => {
@@ -369,7 +372,7 @@ function VehiclesView({ user, userData, isAdmin }) {
     if(!isAdmin) return;
     await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'vehicles'), { ...newVehicle, assignedTo: 'Libero' });
     await logOperation(userData, "Aggiunta Mezzo", `Creato ${newVehicle.name} - ${newVehicle.plate}`);
-    setNewVehicle({ name: '', plate: '', type: 'Furgone', deadline: '' });
+    setNewVehicle({ name: '', plate: '', type: 'Furgone', insuranceDate: '', taxDate: '', inspectionDate: '' });
   };
 
   const handleAssign = async (vehicleId, name) => {
@@ -382,28 +385,93 @@ function VehiclesView({ user, userData, isAdmin }) {
     if(window.confirm("Eliminare mezzo?")) await deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'vehicles', id));
   }
 
+  // Funzione per generare notifiche manuali
+  const checkDeadlines = async () => {
+    if (!isMaster) return;
+    let count = 0;
+    const today = new Date();
+    
+    for (let v of vehicles) {
+      const dates = [
+        { label: 'Assicurazione', date: v.insuranceDate },
+        { label: 'Bollo', date: v.taxDate },
+        { label: 'Revisione', date: v.inspectionDate }
+      ];
+
+      for (let d of dates) {
+        if (d.date) {
+          const expDate = new Date(d.date);
+          const diffTime = expDate - today;
+          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+          
+          if (diffDays <= 30) {
+             // Invia notifica se scade entro 30gg o è scaduta
+             const msg = diffDays < 0 
+               ? `SCADUTA: ${d.label} per ${v.name} (${v.plate})`
+               : `In scadenza: ${d.label} per ${v.name} (${v.plate}) tra ${diffDays} giorni`;
+             
+             await sendNotification('all_masters', 'Avviso Scadenza Mezzo', msg, 'warning');
+             count++;
+          }
+        }
+      }
+    }
+    alert(`Controllo completato. Inviate ${count} notifiche per scadenze imminenti o passate.`);
+  };
+
+  const getDeadlineStatus = (dateString) => {
+    if (!dateString) return { status: 'none', label: '-' };
+    const today = new Date();
+    const expDate = new Date(dateString);
+    const diffTime = expDate - today;
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+    if (diffDays < 0) return { status: 'expired', label: 'SCADUTO', color: 'text-red-600 font-bold' };
+    if (diffDays <= 30) return { status: 'warning', label: `${diffDays} gg`, color: 'text-orange-500 font-bold' };
+    return { status: 'ok', label: new Date(dateString).toLocaleDateString(), color: 'text-slate-500' };
+  };
+
   return (
     <div className="space-y-6">
       {isAdmin && (
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
           <h3 className="font-bold text-slate-700 mb-3 flex gap-2"><Truck className="w-5 h-5 text-blue-600"/> Aggiungi Mezzo / Attrezzatura</h3>
-          <form onSubmit={handleAdd} className="flex flex-col md:flex-row gap-2">
-            <select className="px-3 py-2 border rounded-lg text-sm" value={newVehicle.type} onChange={e=>setNewVehicle({...newVehicle, type: e.target.value})}><option>Furgone</option><option>Auto</option><option>Attrezzatura</option></select>
-            <input type="text" placeholder="Modello/Nome" className="flex-1 px-3 py-2 border rounded-lg text-sm" value={newVehicle.name} onChange={e=>setNewVehicle({...newVehicle, name: e.target.value})} required/>
-            <input type="text" placeholder="Targa/Serial" className="w-32 px-3 py-2 border rounded-lg text-sm" value={newVehicle.plate} onChange={e=>setNewVehicle({...newVehicle, plate: e.target.value})} />
-            <input type="date" title="Scadenza Assicurazione/Rev." className="px-3 py-2 border rounded-lg text-sm" value={newVehicle.deadline} onChange={e=>setNewVehicle({...newVehicle, deadline: e.target.value})} />
-            <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium">Salva</button>
+          <form onSubmit={handleAdd} className="space-y-3">
+            <div className="flex flex-col md:flex-row gap-2">
+              <select className="px-3 py-2 border rounded-lg text-sm" value={newVehicle.type} onChange={e=>setNewVehicle({...newVehicle, type: e.target.value})}><option>Furgone</option><option>Auto</option><option>Attrezzatura</option></select>
+              <input type="text" placeholder="Modello/Nome" className="flex-1 px-3 py-2 border rounded-lg text-sm" value={newVehicle.name} onChange={e=>setNewVehicle({...newVehicle, name: e.target.value})} required/>
+              <input type="text" placeholder="Targa/Serial" className="w-32 px-3 py-2 border rounded-lg text-sm" value={newVehicle.plate} onChange={e=>setNewVehicle({...newVehicle, plate: e.target.value})} />
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+              <div className="flex flex-col"><label className="text-[10px] uppercase text-slate-500 font-bold">Assicurazione</label><input type="date" className="px-3 py-2 border rounded-lg text-sm" value={newVehicle.insuranceDate} onChange={e=>setNewVehicle({...newVehicle, insuranceDate: e.target.value})} /></div>
+              <div className="flex flex-col"><label className="text-[10px] uppercase text-slate-500 font-bold">Bollo</label><input type="date" className="px-3 py-2 border rounded-lg text-sm" value={newVehicle.taxDate} onChange={e=>setNewVehicle({...newVehicle, taxDate: e.target.value})} /></div>
+              <div className="flex flex-col"><label className="text-[10px] uppercase text-slate-500 font-bold">Revisione</label><input type="date" className="px-3 py-2 border rounded-lg text-sm" value={newVehicle.inspectionDate} onChange={e=>setNewVehicle({...newVehicle, inspectionDate: e.target.value})} /></div>
+            </div>
+            <div className="flex justify-end pt-2">
+              <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium">Salva</button>
+            </div>
           </form>
+        </div>
+      )}
+
+      {isMaster && (
+        <div className="flex justify-end">
+          <button onClick={checkDeadlines} className="flex items-center gap-2 text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-2 rounded-lg transition-colors border border-slate-200">
+            <ShieldAlert className="w-4 h-4"/> Verifica Scadenze & Notifica
+          </button>
         </div>
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {vehicles.map(v => {
-          const isExpired = v.deadline && new Date(v.deadline) < new Date();
+          const insStatus = getDeadlineStatus(v.insuranceDate);
+          const taxStatus = getDeadlineStatus(v.taxDate);
+          const inspStatus = getDeadlineStatus(v.inspectionDate);
+          const hasIssues = insStatus.status !== 'ok' || taxStatus.status !== 'ok' || inspStatus.status !== 'ok';
+
           return (
-            <div key={v.id} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
-              {isExpired && <div className="absolute top-0 right-0 bg-red-500 text-white text-[10px] px-2 py-1 rounded-bl-lg font-bold flex items-center gap-1"><AlertTriangle className="w-3 h-3"/> SCADUTO</div>}
-              <div className="flex items-start justify-between">
+            <div key={v.id} className={`bg-white p-4 rounded-xl border shadow-sm relative overflow-hidden ${hasIssues ? 'border-orange-200' : 'border-slate-200'}`}>
+              <div className="flex items-start justify-between mb-3">
                 <div>
                   <h4 className="font-bold text-slate-800">{v.name}</h4>
                   <p className="text-xs text-slate-500 font-mono bg-slate-100 inline-block px-1 rounded mt-1">{v.plate || 'No Targa'}</p>
@@ -411,7 +479,13 @@ function VehiclesView({ user, userData, isAdmin }) {
                 {v.type === 'Attrezzatura' ? <Wrench className="w-8 h-8 text-orange-200"/> : <Truck className="w-8 h-8 text-blue-200"/>}
               </div>
               
-              <div className="mt-4 pt-4 border-t border-slate-100">
+              <div className="space-y-2 text-sm border-t border-slate-100 pt-3">
+                <div className="flex justify-between items-center"><span className="text-slate-500 text-xs">Assicurazione:</span> <span className={`text-xs ${insStatus.color}`}>{insStatus.label}</span></div>
+                <div className="flex justify-between items-center"><span className="text-slate-500 text-xs">Bollo:</span> <span className={`text-xs ${taxStatus.color}`}>{taxStatus.label}</span></div>
+                <div className="flex justify-between items-center"><span className="text-slate-500 text-xs">Revisione:</span> <span className={`text-xs ${inspStatus.color}`}>{inspStatus.label}</span></div>
+              </div>
+
+              <div className="mt-4 pt-3 border-t border-slate-100">
                 <p className="text-xs text-slate-400 mb-1">Assegnato a:</p>
                 {isAdmin ? (
                   <select 
@@ -425,7 +499,6 @@ function VehiclesView({ user, userData, isAdmin }) {
                 ) : (
                   <p className="font-medium text-slate-700">{v.assignedTo}</p>
                 )}
-                {v.deadline && <p className={`text-xs mt-2 ${isExpired ? 'text-red-500 font-bold' : 'text-slate-400'}`}>Scadenza: {new Date(v.deadline).toLocaleDateString()}</p>}
               </div>
               {isAdmin && <button onClick={()=>handleDelete(v.id)} className="absolute bottom-2 right-2 text-slate-300 hover:text-red-500"><Trash2 className="w-4 h-4"/></button>}
             </div>
@@ -1275,287 +1348,6 @@ function SiteSchedule({ task, isAdmin }) {
             );
           })
         }
-      </div>
-    </div>
-  );
-}
-
-// Material Requests View (Aggiornata per notifiche)
-function MaterialRequestsView({ taskId, user, userData, isAdmin, task }) {
-  const [requests, setRequests] = useState([]);
-  const [newItem, setNewItem] = useState('');
-  const [quantity, setQuantity] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [aiSuggestions, setAiSuggestions] = useState(null);
-  const [loadingAi, setLoadingAi] = useState(false);
-
-  useEffect(() => {
-    const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'material_requests'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const all = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setRequests(all.filter(r => r.taskId === taskId).sort((a,b) => b.createdAt?.seconds - a.createdAt?.seconds));
-      setLoading(false);
-    });
-    return () => unsubscribe();
-  }, [taskId]);
-
-  const handleAddRequest = async (e) => {
-    e.preventDefault();
-    if (!newItem.trim()) return;
-    try {
-      await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'material_requests'), {
-        taskId, item: newItem, quantity: quantity, userId: user.uid, userName: userData?.name || 'Dipendente', status: 'pending', createdAt: serverTimestamp()
-      });
-      await logOperation(userData, "Richiesta Materiale", `${newItem} per cantiere ${task.title}`);
-      await sendNotification('all_masters', 'Richiesta Materiale', `${userData?.name} ha richiesto ${newItem} per ${task.title}.`);
-      setNewItem(''); setQuantity('');
-    } catch (err) { alert(err.message); }
-  };
-
-  const handleAiSuggest = async () => {
-    setLoadingAi(true);
-    const prompt = `Sono in un cantiere edile per: "${task?.title}". Descrizione: "${task?.description || ''}". Suggerisci 5 materiali o attrezzature essenziali che potrei aver dimenticato di ordinare. Rispondi solo con una lista separata da virgole.`;
-    const result = await callGeminiAI(prompt);
-    setAiSuggestions(result.split(','));
-    setLoadingAi(false);
-  };
-
-  const toggleStatus = async (req) => {
-    if (!isAdmin) return; // Solo Admin cambia stato
-    const newStatus = req.status === 'ordered' ? 'pending' : 'ordered';
-    try { await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'material_requests', req.id), { status: newStatus }); } catch(err) { console.error(err); }
-  };
-
-  const deleteRequest = async (id) => {
-    if (!isAdmin && !window.confirm("Cancellare richiesta?")) return;
-    try { await deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'material_requests', id)); } catch(err) {}
-  };
-
-  return (
-    <div className="space-y-6">
-      <div className="bg-orange-50 border border-orange-100 p-4 rounded-xl mb-4 flex justify-between items-center">
-        <div><h3 className="font-bold text-orange-800 text-sm mb-1 flex items-center gap-2"><ShoppingCart className="w-4 h-4"/> Richieste Fornitura</h3><p className="text-xs text-orange-700">Richiedi materiale mancante per il cantiere.</p></div>
-        {!aiSuggestions && (<button onClick={handleAiSuggest} disabled={loadingAi} className="text-xs bg-white text-orange-600 border border-orange-200 px-3 py-2 rounded-lg font-medium hover:bg-orange-100 flex items-center gap-1 shadow-sm">{loadingAi ? <Loader2 className="w-3 h-3 animate-spin"/> : <Sparkles className="w-3 h-3 text-yellow-500"/>} Suggerisci Materiali AI</button>)}
-      </div>
-      {aiSuggestions && (
-        <div className="bg-yellow-50 p-4 rounded-xl border border-yellow-200 mb-4 animate-in slide-in-from-top-2">
-           <div className="flex justify-between items-center mb-2"><h4 className="text-xs font-bold text-yellow-800 flex items-center gap-1"><Bot className="w-3 h-3"/> Suggerimenti AI:</h4><button onClick={() => setAiSuggestions(null)} className="text-yellow-600 hover:text-yellow-800"><X className="w-3 h-3"/></button></div>
-           <div className="flex flex-wrap gap-2">{aiSuggestions.map((sugg, idx) => (<button key={idx} onClick={() => setNewItem(sugg.trim())} className="text-xs bg-white border border-yellow-300 text-yellow-800 px-2 py-1 rounded-md hover:bg-yellow-100 transition-colors">+ {sugg.trim()}</button>))}</div>
-        </div>
-      )}
-      <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
-        <form onSubmit={handleAddRequest} className="flex gap-2"><input type="text" placeholder="Cosa serve?" className="flex-1 px-3 py-2 bg-slate-50 border rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500" value={newItem} onChange={e => setNewItem(e.target.value)} /><input type="text" placeholder="Q.tà" className="w-20 px-3 py-2 bg-slate-50 border rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500" value={quantity} onChange={e => setQuantity(e.target.value)} /><button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded-lg font-medium text-sm hover:bg-blue-700">Richiedi</button></form>
-      </div>
-      <div className="space-y-2">
-        {loading ? <Loader2 className="w-6 h-6 animate-spin mx-auto text-blue-600 my-4" /> : requests.length === 0 ? <p className="text-center text-slate-400 text-sm py-8">Nessuna richiesta di materiale attiva.</p> :
-          requests.map(req => (
-            <div key={req.id} className={`flex items-center justify-between p-3 rounded-lg border transition-colors ${req.status === 'ordered' ? 'bg-green-50 border-green-100 opacity-70' : 'bg-white border-slate-200'}`}>
-              <div className="flex items-center gap-3"><button onClick={() => toggleStatus(req)} disabled={!isAdmin} className={`w-5 h-5 rounded border flex items-center justify-center ${req.status === 'ordered' ? 'bg-green-500 border-green-500 text-white' : 'border-slate-300 text-transparent'} ${!isAdmin ? 'cursor-default' : 'cursor-pointer'}`}><CheckSquare className="w-3.5 h-3.5" /></button><div><p className={`font-medium text-sm ${req.status === 'ordered' ? 'line-through text-slate-500' : 'text-slate-800'}`}>{req.item} <span className="text-slate-500 font-normal">({req.quantity})</span></p><p className="text-[10px] text-slate-400">Richiesto da: {req.userName} • {req.createdAt ? new Date(req.createdAt.seconds * 1000).toLocaleDateString() : ''}</p></div></div>
-              {(isAdmin || req.userId === user.uid) && <button onClick={() => deleteRequest(req.id)} className="text-slate-300 hover:text-red-500 p-1"><Trash2 className="w-4 h-4" /></button>}
-            </div>
-          ))
-        }
-      </div>
-    </div>
-  );
-}
-
-function TasksView({ user, userData, isMaster, isAdmin, onSelectTask }) {
-  const [tasks, setTasks] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [title, setTitle] = useState('');
-  const [client, setClient] = useState('');
-  const [description, setDescription] = useState('');
-  const [isFormOpen, setIsFormOpen] = useState(false);
-
-  useEffect(() => {
-    const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'tasks'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      data.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
-      setTasks(data);
-      setLoading(false);
-    });
-    return () => unsubscribe();
-  }, []);
-
-  const handleAddTask = async (e) => {
-    e.preventDefault();
-    if (!isAdmin) { alert("Solo gli Admin possono creare cantieri."); return; }
-    if (!title.trim() || !client.trim()) return;
-    try {
-      await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'tasks'), {
-        title, client, description, completed: false, createdAt: serverTimestamp(), userId: user.uid, authorName: userData?.name
-      });
-      await logOperation(userData, "Creazione Cantiere", `Nuovo cantiere: ${title}`);
-      setTitle(''); setClient(''); setDescription(''); setIsFormOpen(false);
-    } catch (err) { alert(err.message); }
-  };
-
-  const toggleTask = async (task, e) => {
-    e.stopPropagation();
-    try { await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'tasks', task.id), { completed: !task.completed }); } catch (err) {}
-  };
-
-  const deleteTask = async (taskId, e) => {
-    e.stopPropagation();
-    if (!isAdmin) { alert("Solo gli Admin possono eliminare."); return; }
-    if (!window.confirm("Eliminare definitivamente?")) return;
-    try { await deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'tasks', taskId)); } catch (err) {}
-  };
-
-  return (
-    <div className="space-y-6">
-      {isAdmin && !isFormOpen && (
-        <button onClick={() => setIsFormOpen(true)} className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-medium shadow-sm flex items-center justify-center gap-2 transition-all">
-          <Plus className="w-5 h-5" /> Registra Nuova Attività
-        </button>
-      )}
-
-      {isFormOpen && (
-        <div className="bg-white p-6 rounded-2xl shadow-lg border border-blue-100 animate-in fade-in slide-in-from-top-4">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="font-semibold text-slate-800 flex items-center gap-2"><ClipboardList className="w-5 h-5 text-blue-600" /> Dettagli Attività</h3>
-            <button onClick={() => setIsFormOpen(false)} className="text-slate-400 hover:text-slate-600 text-sm">Annulla</button>
-          </div>
-          <form onSubmit={handleAddTask} className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <input required type="text" value={title} onChange={e => setTitle(e.target.value)} className="w-full px-3 py-2.5 bg-slate-50 border rounded-lg" placeholder="Cantiere / Attività" />
-              <input required type="text" value={client} onChange={e => setClient(e.target.value)} className="w-full px-3 py-2.5 bg-slate-50 border rounded-lg" placeholder="Committente" />
-            </div>
-            <textarea value={description} onChange={e => setDescription(e.target.value)} className="w-full px-3 py-2.5 bg-slate-50 border rounded-lg" placeholder="Descrizione..." />
-            <div className="flex justify-end"><button type="submit" className="bg-blue-600 text-white px-8 py-2.5 rounded-lg font-medium">Salva</button></div>
-          </form>
-        </div>
-      )}
-
-      <div className="grid gap-4">
-        {loading ? <div className="text-center py-10"><Loader2 className="w-8 h-8 text-blue-600 animate-spin mx-auto" /></div> : tasks.length === 0 ? 
-          <div className="text-center py-16 bg-white rounded-2xl border border-dashed border-slate-300"><ClipboardList className="w-12 h-12 text-slate-300 mx-auto mb-3" /><h3 className="text-slate-900 font-medium">Nessuna attività registrata</h3></div> : 
-          tasks.map((task) => (
-            <div key={task.id} onClick={() => onSelectTask(task)} className={`group cursor-pointer relative bg-white rounded-xl border p-5 transition-all hover:ring-2 hover:ring-blue-500 hover:border-transparent hover:shadow-lg ${task.completed ? 'border-slate-100 bg-slate-50 opacity-75' : 'border-slate-200'}`}>
-              <div className="flex items-start gap-4">
-                <button onClick={(e) => toggleTask(task, e)} className={`mt-1 shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${task.completed ? 'bg-green-500 border-green-500 text-white' : 'border-slate-300 text-transparent hover:border-green-500'}`}><CheckCircle className="w-3.5 h-3.5" strokeWidth={3} /></button>
-                <div className="flex-1">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <h4 className={`text-lg font-bold ${task.completed ? 'text-slate-500 line-through' : 'text-slate-800'}`}>{task.title}</h4>
-                      <div className="flex items-center gap-2 text-sm text-slate-600 mt-1 font-medium"><User className="w-3.5 h-3.5" /> Committente: {task.client}</div>
-                    </div>
-                    {isAdmin && <button onClick={(e) => deleteTask(task.id, e)} className="p-2 text-slate-300 hover:text-red-500 rounded-lg"><Trash2 className="w-4 h-4" /></button>}
-                  </div>
-                  <div className="mt-3 flex items-center gap-3 text-xs text-slate-400 border-t border-slate-100 pt-3">
-                    <span className="flex items-center gap-1">Clicca per gestire materiali e foto</span>
-                    <span className="ml-auto text-blue-600 font-semibold group-hover:underline">Apri Cantiere →</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          ))
-        }
-      </div>
-    </div>
-  );
-}
-
-function MaterialsView({ user, userData, isMaster, isAdmin, context = 'warehouse', taskId = null }) {
-  const [materials, setMaterials] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [isFormOpen, setIsFormOpen] = useState(false);
-  const [formData, setFormData] = useState({
-    name: '', supplier: '', type: 'Elettrico', quantity: '', unit: 'pz', cost: '', code: ''
-  });
-
-  useEffect(() => {
-    const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'materials'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      const filtered = context === 'site' ? data.filter(item => item.taskId === taskId) : data;
-      filtered.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
-      setMaterials(filtered);
-      setLoading(false);
-    });
-    return () => unsubscribe();
-  }, [context, taskId]);
-
-  const handleChange = (e) => setFormData({ ...formData, [e.target.name]: e.target.value });
-
-  const handleAddMaterial = async (e) => {
-    e.preventDefault();
-    try {
-      await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'materials'), {
-        ...formData,
-        taskId: context === 'site' ? taskId : null,
-        createdAt: serverTimestamp(),
-        userId: user.uid,
-        authorName: userData?.name
-      });
-      setFormData({ name: '', supplier: '', type: 'Elettrico', quantity: '', unit: 'pz', cost: '', code: '' });
-      setIsFormOpen(false);
-    } catch (err) { alert(err.message); }
-  };
-
-  const deleteMaterial = async (id) => {
-    if (!isAdmin) { alert("Solo i Master possono eliminare."); return; }
-    if (!window.confirm("Eliminare materiale?")) return;
-    try { await deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'materials', id)); } catch (err) {}
-  };
-
-  return (
-    <div className="space-y-6">
-      {!isFormOpen && (
-        <button onClick={() => setIsFormOpen(true)} className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-medium shadow-sm flex items-center justify-center gap-2 transition-all">
-          <Plus className="w-5 h-5" /> 
-          {context === 'site' ? 'Carica Materiale per Cantiere' : 'Carica Nuovo Materiale'}
-        </button>
-      )}
-
-      {isFormOpen && (
-        <div className="bg-white p-6 rounded-2xl shadow-lg border border-blue-100 animate-in fade-in slide-in-from-top-4">
-          <div className="flex justify-between items-center mb-4"><h3 className="font-semibold text-slate-800 flex items-center gap-2"><Package className="w-5 h-5 text-blue-600" /> Scheda Materiale</h3><button onClick={() => setIsFormOpen(false)} className="text-slate-400 hover:text-slate-600 text-sm">Annulla</button></div>
-          <form onSubmit={handleAddMaterial} className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="col-span-1 md:col-span-2 space-y-1"><label className="text-xs font-bold text-slate-500 uppercase">Descrizione Articolo</label><input required name="name" value={formData.name} onChange={handleChange} className="w-full px-3 py-2.5 bg-slate-50 border rounded-lg" /></div>
-              <div className="space-y-1"><label className="text-xs font-bold text-slate-500 uppercase">Codice</label><input name="code" value={formData.code} onChange={handleChange} className="w-full px-3 py-2.5 bg-slate-50 border rounded-lg" /></div>
-            </div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-               <div className="space-y-1"><label className="text-xs font-bold text-slate-500 uppercase">Fornitore</label><input required name="supplier" value={formData.supplier} onChange={handleChange} className="w-full px-3 py-2.5 bg-slate-50 border rounded-lg" /></div>
-               <div className="space-y-1"><label className="text-xs font-bold text-slate-500 uppercase">Tipo</label><select name="type" value={formData.type} onChange={handleChange} className="w-full px-3 py-2.5 bg-slate-50 border rounded-lg"><option>Elettrico</option><option>Idraulico</option><option>Edile</option><option>Ferramenta</option><option>Altro</option></select></div>
-               <div className="space-y-1"><label className="text-xs font-bold text-slate-500 uppercase">Q.tà</label><div className="flex"><input required type="number" name="quantity" value={formData.quantity} onChange={handleChange} className="w-full px-3 py-2.5 bg-slate-50 border rounded-l-lg" /><select name="unit" value={formData.unit} onChange={handleChange} className="bg-slate-100 border rounded-r-lg px-2"><option value="pz">pz</option><option value="m">m</option><option value="kg">kg</option><option value="cf">cf</option></select></div></div>
-               <div className="space-y-1"><label className="text-xs font-bold text-slate-500 uppercase">Costo (€)</label><input type="number" step="0.01" name="cost" value={formData.cost} onChange={handleChange} className="w-full px-3 py-2.5 bg-slate-50 border rounded-lg" /></div>
-            </div>
-            <div className="pt-2 flex justify-end"><button type="submit" className="bg-blue-600 text-white px-8 py-2.5 rounded-lg font-medium">Salva</button></div>
-          </form>
-        </div>
-      )}
-
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-slate-50 text-slate-500 border-b border-slate-200 uppercase text-xs font-bold">
-              <tr>
-                <th className="px-4 py-3">Articolo</th>
-                <th className="px-4 py-3">Fornitore</th>
-                <th className="px-4 py-3 text-center">Q.tà</th>
-                <th className="px-4 py-3 text-right">Totale</th>
-                {isAdmin && <th className="px-4 py-3 text-right">Azioni</th>}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {loading ? <tr><td colSpan="5" className="p-8 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-blue-600" /></td></tr> : materials.length === 0 ? <tr><td colSpan="5" className="p-8 text-center text-slate-400">Nessun materiale registrato</td></tr> : 
-                materials.map((item) => (
-                  <tr key={item.id} className="hover:bg-slate-50">
-                    <td className="px-4 py-3 font-medium text-slate-800">{item.name} {item.code && <span className="text-xs text-slate-400 block">{item.code}</span>}</td>
-                    <td className="px-4 py-3 text-slate-600">{item.supplier}</td>
-                    <td className="px-4 py-3 text-center">{item.quantity} {item.unit}</td>
-                    <td className="px-4 py-3 text-right font-bold text-slate-800">€ {(parseFloat(item.quantity||0)*parseFloat(item.cost||0)).toFixed(2)}</td>
-                    {isAdmin && <td className="px-4 py-3 text-right"><button onClick={() => deleteMaterial(item.id)} className="text-slate-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button></td>}
-                  </tr>
-                ))
-              }
-            </tbody>
-          </table>
-        </div>
       </div>
     </div>
   );
