@@ -119,11 +119,12 @@ const callGeminiAI = async (prompt) => {
 const logOperation = async (userData, action, details) => {
   let location = "N/D";
   try {
-    const pos = await new Promise((resolve, reject) => {
-       if(!navigator.geolocation) reject("No Geo");
-       navigator.geolocation.getCurrentPosition(resolve, reject, {timeout: 4000});
-    });
-    location = `${pos.coords.latitude.toFixed(5)}, ${pos.coords.longitude.toFixed(5)}`;
+    if (navigator.geolocation) {
+      const pos = await new Promise((resolve, reject) => {
+         navigator.geolocation.getCurrentPosition(resolve, reject, {timeout: 5000});
+      });
+      location = `${pos.coords.latitude.toFixed(5)}, ${pos.coords.longitude.toFixed(5)}`;
+    }
   } catch(e) { location = "Posizione non rilevata"; }
 
   try {
@@ -212,11 +213,9 @@ function Dashboard({ user, userData }) {
 
   const handleLogout = () => signOut(auth);
   
-  // Logica Ruoli
   const isMaster = userData?.role === 'Master';
   const isAdmin = userData?.role === 'Master' && userData?.access === 'full'; 
 
-  // Fetch Notifiche
   useEffect(() => {
     if (!user) return;
     const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'notifications'));
@@ -240,7 +239,6 @@ function Dashboard({ user, userData }) {
 
   return (
     <div>
-      {/* Header Comune */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-20 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -254,7 +252,6 @@ function Dashboard({ user, userData }) {
             </div>
           </div>
           
-          {/* Navigazione Tab */}
           {!selectedTask && (
             <div className="flex bg-slate-100 p-1 rounded-lg overflow-x-auto mx-2">
               <button onClick={() => setActiveTab('tasks')} className={`px-3 py-1.5 rounded-md text-xs sm:text-sm font-medium transition-all whitespace-nowrap ${activeTab === 'tasks' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}>Cantieri</button>
@@ -266,7 +263,6 @@ function Dashboard({ user, userData }) {
           )}
 
           <div className="flex items-center gap-3">
-            {/* Notifiche */}
             <div className="relative">
               <button onClick={() => setShowNotifPanel(!showNotifPanel)} className="p-2 rounded-full hover:bg-slate-100 relative text-slate-600">
                 <Bell className="w-5 h-5" />
@@ -303,7 +299,6 @@ function Dashboard({ user, userData }) {
         </div>
       </header>
 
-      {/* Contenuto Principale - Logica di Navigazione Corretta */}
       <main className="max-w-7xl mx-auto p-4 sm:p-6 space-y-6">
         {selectedTask ? (
           <TaskDetailView 
@@ -350,7 +345,7 @@ function Dashboard({ user, userData }) {
   );
 }
 
-// --- VISTA PARCO MEZZI (AGGIORNATA CON SCADENZE MULTIPLE) ---
+// --- VISTA PARCO MEZZI ---
 function VehiclesView({ user, userData, isAdmin, isMaster }) {
   const [vehicles, setVehicles] = useState([]);
   const [newVehicle, setNewVehicle] = useState({ 
@@ -385,7 +380,6 @@ function VehiclesView({ user, userData, isAdmin, isMaster }) {
     if(window.confirm("Eliminare mezzo?")) await deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'vehicles', id));
   }
 
-  // Funzione per generare notifiche manuali
   const checkDeadlines = async () => {
     if (!isMaster) return;
     let count = 0;
@@ -405,7 +399,6 @@ function VehiclesView({ user, userData, isAdmin, isMaster }) {
           const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
           
           if (diffDays <= 30) {
-             // Invia notifica se scade entro 30gg o è scaduta
              const msg = diffDays < 0 
                ? `SCADUTA: ${d.label} per ${v.name} (${v.plate})`
                : `In scadenza: ${d.label} per ${v.name} (${v.plate}) tra ${diffDays} giorni`;
@@ -509,218 +502,6 @@ function VehiclesView({ user, userData, isAdmin, isMaster }) {
   )
 }
 
-// --- NUOVA TAB: AREA PERSONALE (Documenti & Ferie & AUDIT LOG) ---
-function PersonalAreaView({ user, userData, isMaster, isAdmin }) {
-  const [subTab, setSubTab] = useState('leaves'); 
-  const [targetUser, setTargetUser] = useState(user.uid); 
-  const [usersList, setUsersList] = useState([]);
-
-  useEffect(() => {
-    if(isMaster) {
-      const list = Object.entries(USERS_CONFIG).map(([k, v]) => ({ username: k, ...v }));
-      setUsersList(list);
-    }
-  }, [isMaster]);
-  
-  return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-4 rounded-xl border border-slate-200">
-        <div><h2 className="text-xl font-bold text-slate-800 flex items-center gap-2"><UserCheck className="w-6 h-6 text-blue-600"/> Area Personale</h2><p className="text-sm text-slate-500">Gestione ferie, permessi e documenti.</p></div>
-        {isMaster && (
-          <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-lg border border-slate-200">
-            <span className="text-xs font-bold uppercase text-slate-500">Visualizza:</span>
-            <select className="bg-transparent text-sm font-medium outline-none text-slate-700" onChange={(e) => setTargetUser(e.target.value)}>
-              <option value={user.uid}>Mio Profilo</option>
-              {usersList.map(u => (<option key={u.username} value={u.username}>{u.name}</option>))}
-            </select>
-          </div>
-        )}
-      </div>
-
-      <div className="flex gap-2 border-b border-slate-200 overflow-x-auto">
-        <button onClick={() => setSubTab('leaves')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${subTab === 'leaves' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500'}`}>Ferie & Permessi</button>
-        <button onClick={() => setSubTab('docs')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${subTab === 'docs' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500'}`}>Documenti Personali</button>
-        {isMaster && <button onClick={() => setSubTab('logs')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${subTab === 'logs' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500'}`}>Registro Log</button>}
-      </div>
-
-      {subTab === 'leaves' && <LeaveRequestsPanel currentUser={user} targetIdentifier={targetUser} isMaster={isMaster} isAdmin={isAdmin} userData={userData} />}
-      {subTab === 'docs' && <PersonalDocsPanel currentUser={user} targetIdentifier={targetUser} isMaster={isMaster} isAdmin={isAdmin} />}
-      {subTab === 'logs' && isMaster && <AuditLogView isAdmin={isAdmin} />}
-    </div>
-  );
-}
-
-// --- NUOVO COMPONENTE: AUDIT LOG ---
-function AuditLogView({ isAdmin }) {
-  const [logs, setLogs] = useState([]);
-  
-  useEffect(() => {
-    // Carica ultimi 50 log
-    const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'audit_logs'), orderBy('createdAt', 'desc'), limit(50));
-    const unsub = onSnapshot(q, (snap) => setLogs(snap.docs.map(d => ({id: d.id, ...d.data()}))));
-    return () => unsub();
-  }, []);
-
-  return (
-    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-      <div className="p-4 bg-slate-50 border-b border-slate-200"><h3 className="font-bold text-slate-700 flex gap-2"><MapPin className="w-5 h-5"/> Registro Operazioni & Posizioni</h3></div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-left text-sm">
-          <thead className="bg-slate-50 text-slate-500 text-xs uppercase"><tr><th className="px-4 py-2">Data/Ora</th><th className="px-4 py-2">Utente</th><th className="px-4 py-2">Azione</th><th className="px-4 py-2">Dettagli</th><th className="px-4 py-2">Posizione</th></tr></thead>
-          <tbody className="divide-y divide-slate-100">
-            {logs.map(log => (
-              <tr key={log.id} className="hover:bg-slate-50">
-                <td className="px-4 py-2 text-xs text-slate-500">{log.createdAt?.seconds ? new Date(log.createdAt.seconds * 1000).toLocaleString() : ''}</td>
-                <td className="px-4 py-2 font-medium">{log.userName}</td>
-                <td className="px-4 py-2"><span className="px-2 py-1 rounded bg-blue-50 text-blue-700 text-xs font-bold">{log.action}</span></td>
-                <td className="px-4 py-2 text-slate-600">{log.details}</td>
-                <td className="px-4 py-2 text-xs font-mono text-slate-400">{log.location}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  )
-}
-
-// Sotto-componente: Ferie
-function LeaveRequestsPanel({ currentUser, targetIdentifier, isMaster, isAdmin, userData }) {
-  const [leaves, setLeaves] = useState([]);
-  const [newRequest, setNewRequest] = useState({ start: '', end: '', type: 'Ferie', reason: '' });
-
-  useEffect(() => {
-    const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'leaves'));
-    const unsub = onSnapshot(q, (snap) => {
-      const all = snap.docs.map(d => ({id: d.id, ...d.data()}));
-      const filtered = all.filter(l => {
-         if (targetIdentifier === currentUser.uid) return l.userId === currentUser.uid;
-         return l.username === targetIdentifier; 
-      }).sort((a,b) => b.createdAt?.seconds - a.createdAt?.seconds);
-      setLeaves(filtered);
-    });
-    return () => unsub();
-  }, [targetIdentifier, currentUser]);
-
-  const requestLeave = async (e) => {
-    e.preventDefault();
-    if (!newRequest.start || !newRequest.end) return;
-    await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'leaves'), {
-      ...newRequest,
-      userId: currentUser.uid,
-      username: currentUser.email.split('@')[0], 
-      fullName: USERS_CONFIG[currentUser.email.split('@')[0]]?.name || 'Utente',
-      status: 'pending',
-      createdAt: serverTimestamp()
-    });
-    await logOperation(userData, "Richiesta Ferie", `Richieste ferie dal ${newRequest.start}`);
-    await sendNotification('all_masters', 'Richiesta Ferie', `${userData?.name} ha chiesto ferie.`);
-    setNewRequest({ start: '', end: '', type: 'Ferie', reason: '' });
-  };
-
-  const handleStatus = async (id, status, reqUserUid) => {
-    if (!isAdmin) return; 
-    await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'leaves', id), { status });
-    await sendNotification(reqUserUid, `Richiesta ${status}`, `La tua richiesta è stata ${status}.`);
-  };
-
-  const isViewingSelf = targetIdentifier === currentUser.uid;
-
-  return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-      {isViewingSelf && (
-        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm h-fit">
-          <h3 className="font-bold text-slate-700 mb-4">Nuova Richiesta</h3>
-          <form onSubmit={requestLeave} className="space-y-3">
-            <div><label className="text-xs font-bold text-slate-500 uppercase">Tipo</label><select className="w-full border rounded-lg p-2 text-sm" value={newRequest.type} onChange={e=>setNewRequest({...newRequest, type: e.target.value})}><option>Ferie</option><option>Permesso (Ore)</option><option>Malattia</option></select></div>
-            <div><label className="text-xs font-bold text-slate-500 uppercase">Dal</label><input type="date" className="w-full border rounded-lg p-2 text-sm" value={newRequest.start} onChange={e=>setNewRequest({...newRequest, start: e.target.value})}/></div>
-            <div><label className="text-xs font-bold text-slate-500 uppercase">Al</label><input type="date" className="w-full border rounded-lg p-2 text-sm" value={newRequest.end} onChange={e=>setNewRequest({...newRequest, end: e.target.value})}/></div>
-            <div><label className="text-xs font-bold text-slate-500 uppercase">Motivo</label><textarea className="w-full border rounded-lg p-2 text-sm" rows="2" value={newRequest.reason} onChange={e=>setNewRequest({...newRequest, reason: e.target.value})}/></div>
-            <button type="submit" className="w-full bg-blue-600 text-white p-2 rounded-lg font-medium hover:bg-blue-700">Invia Richiesta</button>
-          </form>
-        </div>
-      )}
-      <div className={`col-span-1 ${isViewingSelf ? 'md:col-span-2' : 'md:col-span-3'} space-y-3`}>
-        {leaves.map(req => (
-            <div key={req.id} className="bg-white p-4 rounded-xl border border-slate-200 flex justify-between items-center">
-              <div><div className="flex items-center gap-2"><span className={`px-2 py-0.5 rounded text-xs font-bold ${req.status === 'approved' ? 'bg-green-100 text-green-700' : req.status === 'rejected' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>{req.status === 'approved' ? 'APPROVATA' : req.status === 'rejected' ? 'RIFIUTATA' : 'IN ATTESA'}</span><h4 className="font-bold text-slate-800">{req.type}</h4></div><p className="text-sm text-slate-600 mt-1">{new Date(req.start).toLocaleDateString()} - {new Date(req.end).toLocaleDateString()}</p></div>
-              {isAdmin && !isViewingSelf && req.status === 'pending' && (
-                <div className="flex gap-2"><button onClick={() => handleStatus(req.id, 'approved', req.userId)} className="bg-green-600 text-white px-3 py-1 rounded-lg text-xs">Accetta</button><button onClick={() => handleStatus(req.id, 'rejected', req.userId)} className="bg-red-50 text-red-600 border px-3 py-1 rounded-lg text-xs">Rifiuta</button></div>
-              )}
-            </div>
-          ))}
-      </div>
-    </div>
-  );
-}
-
-// Sotto-componente: Documenti Personali
-function PersonalDocsPanel({ currentUser, targetIdentifier, isMaster, isAdmin }) {
-  const [docs, setDocs] = useState([]);
-  const [uploading, setUploading] = useState(false);
-  const fileRef = useRef(null);
-
-  useEffect(() => {
-    const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'personal_docs'));
-    const unsub = onSnapshot(q, (snap) => {
-      const all = snap.docs.map(d => ({id: d.id, ...d.data()}));
-      const filtered = all.filter(d => {
-         if (targetIdentifier === currentUser.uid) return d.targetUserId === currentUser.uid;
-         return d.targetUsername === targetIdentifier;
-      });
-      setDocs(filtered);
-    });
-    return () => unsub();
-  }, [targetIdentifier, currentUser]);
-
-  const handleUpload = async (e) => {
-    if (!isAdmin) return; 
-    const file = e.target.files[0];
-    if(!file) return;
-    setUploading(true);
-    const reader = new FileReader();
-    reader.onloadend = async () => {
-      await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'personal_docs'), {
-        targetUsername: targetIdentifier === currentUser.uid ? currentUser.email.split('@')[0] : targetIdentifier,
-        targetUserId: targetIdentifier === currentUser.uid ? currentUser.uid : null,
-        name: file.name,
-        data: reader.result,
-        createdAt: serverTimestamp()
-      });
-      setUploading(false);
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const deleteDocFile = async (id) => {
-    if(!isAdmin) return;
-    if(!window.confirm("Eliminare?")) return;
-    await deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'personal_docs', id));
-  };
-
-  const isViewingOther = targetIdentifier !== currentUser.uid;
-
-  return (
-    <div className="space-y-6">
-      {isAdmin && isViewingOther && (
-        <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl flex items-center justify-between">
-          <div><h4 className="font-bold text-blue-800 text-sm">Carica Documento</h4><p className="text-xs text-blue-600">Buste paga, comunicazioni.</p></div>
-          <input type="file" ref={fileRef} className="hidden" onChange={handleUpload} />
-          <button onClick={() => fileRef.current?.click()} disabled={uploading} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium flex gap-2">{uploading ? <Loader2 className="w-4 h-4 animate-spin"/> : <FileUp className="w-4 h-4"/>} Carica</button>
-        </div>
-      )}
-      <div className="grid gap-3">
-        {docs.map(d => (
-            <div key={d.id} className="flex items-center justify-between p-4 bg-white border border-slate-200 rounded-xl">
-              <div className="flex items-center gap-3"><FileText className="w-8 h-8 text-slate-300"/><div><h4 className="font-bold text-slate-800 text-sm">{d.name}</h4><p className="text-xs text-slate-400">{d.createdAt ? new Date(d.createdAt.seconds * 1000).toLocaleDateString() : ''}</p></div></div>
-              <div className="flex gap-2"><a href={d.data} download={d.name} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg"><Download className="w-4 h-4"/></a>{isAdmin && <button onClick={() => deleteDocFile(d.id)} className="p-2 text-red-600 hover:bg-red-50 rounded-lg"><Trash2 className="w-4 h-4"/></button>}</div>
-            </div>
-          ))}
-      </div>
-    </div>
-  );
-}
-
 // --- VISTA DETTAGLIO CANTIERE ---
 function TaskDetailView({ task, user, userData, isMaster, isAdmin, onBack }) {
   const [activeSection, setActiveSection] = useState('overview'); 
@@ -729,7 +510,7 @@ function TaskDetailView({ task, user, userData, isMaster, isAdmin, onBack }) {
 
   const tabs = [
     { id: 'overview', label: 'Panoramica', icon: Activity },
-    { id: 'chat', label: 'Chat', icon: MessageSquare }, // NUOVO
+    { id: 'chat', label: 'Chat', icon: MessageSquare },
     { id: 'team', label: 'Squadra', icon: Users },
     { id: 'documents', label: 'Documenti', icon: FileCheck },
     { id: 'schedule', label: 'Crono', icon: CalendarRange },
@@ -796,7 +577,7 @@ function TaskDetailView({ task, user, userData, isMaster, isAdmin, onBack }) {
         {activeSection === 'documents' && <SiteDocuments task={task} user={user} isAdmin={isAdmin} userData={userData} />}
         {activeSection === 'schedule' && <SiteSchedule task={task} isAdmin={isAdmin} />}
         {activeSection === 'materials' && <MaterialsView user={user} userData={userData} isMaster={isMaster} isAdmin={isAdmin} context="site" taskId={task.id} />}
-        {activeSection === 'requests' && <MaterialRequestsView user={user} userData={userData} isAdmin={isAdmin} task={task} />} 
+        {activeSection === 'requests' && <MaterialRequestsView user={user} userData={userData} isAdmin={isAdmin} task={task} taskId={task.id} />} 
         {activeSection === 'photos' && <SitePhotos taskId={task.id} user={user} userData={userData} isAdmin={isAdmin} />}
         {activeSection === 'accounting' && isMaster && <SiteAccounting taskId={task.id} user={user} isAdmin={isAdmin} />}
       </div>
@@ -863,7 +644,6 @@ function DailyReportsView({ user, userData, isMaster }) {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [formData, setFormData] = useState({ taskId: '', date: new Date().toISOString().split('T')[0], hours: '', description: '' });
   
-  // Signature Refs
   const canvasRef = useRef(null);
   const [isDrawing, setIsDrawing] = useState(false);
 
@@ -906,11 +686,9 @@ function DailyReportsView({ user, userData, isMaster }) {
     e.preventDefault();
     if (!formData.taskId) return;
     
-    // Get signature data
     let signature = null;
     if(canvasRef.current) {
         signature = canvasRef.current.toDataURL();
-        // Check if empty (simple check length)
         if(signature.length < 1000) signature = null; 
     }
 
@@ -1348,6 +1126,287 @@ function SiteSchedule({ task, isAdmin }) {
             );
           })
         }
+      </div>
+    </div>
+  );
+}
+
+// Material Requests View (Aggiornata per notifiche)
+function MaterialRequestsView({ taskId, user, userData, isAdmin, task }) {
+  const [requests, setRequests] = useState([]);
+  const [newItem, setNewItem] = useState('');
+  const [quantity, setQuantity] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [aiSuggestions, setAiSuggestions] = useState(null);
+  const [loadingAi, setLoadingAi] = useState(false);
+
+  useEffect(() => {
+    const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'material_requests'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const all = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setRequests(all.filter(r => r.taskId === taskId).sort((a,b) => b.createdAt?.seconds - a.createdAt?.seconds));
+      setLoading(false);
+    });
+    return () => unsubscribe();
+  }, [taskId]);
+
+  const handleAddRequest = async (e) => {
+    e.preventDefault();
+    if (!newItem.trim()) return;
+    try {
+      await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'material_requests'), {
+        taskId, item: newItem, quantity: quantity, userId: user.uid, userName: userData?.name || 'Dipendente', status: 'pending', createdAt: serverTimestamp()
+      });
+      await logOperation(userData, "Richiesta Materiale", `${newItem} per cantiere ${task.title}`);
+      await sendNotification('all_masters', 'Richiesta Materiale', `${userData?.name} ha richiesto ${newItem} per ${task.title}.`);
+      setNewItem(''); setQuantity('');
+    } catch (err) { alert(err.message); }
+  };
+
+  const handleAiSuggest = async () => {
+    setLoadingAi(true);
+    const prompt = `Sono in un cantiere edile per: "${task?.title}". Descrizione: "${task?.description || ''}". Suggerisci 5 materiali o attrezzature essenziali che potrei aver dimenticato di ordinare. Rispondi solo con una lista separata da virgole.`;
+    const result = await callGeminiAI(prompt);
+    setAiSuggestions(result.split(','));
+    setLoadingAi(false);
+  };
+
+  const toggleStatus = async (req) => {
+    if (!isAdmin) return; // Solo Admin cambia stato
+    const newStatus = req.status === 'ordered' ? 'pending' : 'ordered';
+    try { await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'material_requests', req.id), { status: newStatus }); } catch(err) { console.error(err); }
+  };
+
+  const deleteRequest = async (id) => {
+    if (!isAdmin && !window.confirm("Cancellare richiesta?")) return;
+    try { await deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'material_requests', id)); } catch(err) {}
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-orange-50 border border-orange-100 p-4 rounded-xl mb-4 flex justify-between items-center">
+        <div><h3 className="font-bold text-orange-800 text-sm mb-1 flex items-center gap-2"><ShoppingCart className="w-4 h-4"/> Richieste Fornitura</h3><p className="text-xs text-orange-700">Richiedi materiale mancante per il cantiere.</p></div>
+        {!aiSuggestions && (<button onClick={handleAiSuggest} disabled={loadingAi} className="text-xs bg-white text-orange-600 border border-orange-200 px-3 py-2 rounded-lg font-medium hover:bg-orange-100 flex items-center gap-1 shadow-sm">{loadingAi ? <Loader2 className="w-3 h-3 animate-spin"/> : <Sparkles className="w-3 h-3 text-yellow-500"/>} Suggerisci Materiali AI</button>)}
+      </div>
+      {aiSuggestions && (
+        <div className="bg-yellow-50 p-4 rounded-xl border border-yellow-200 mb-4 animate-in slide-in-from-top-2">
+           <div className="flex justify-between items-center mb-2"><h4 className="text-xs font-bold text-yellow-800 flex items-center gap-1"><Bot className="w-3 h-3"/> Suggerimenti AI:</h4><button onClick={() => setAiSuggestions(null)} className="text-yellow-600 hover:text-yellow-800"><X className="w-3 h-3"/></button></div>
+           <div className="flex flex-wrap gap-2">{aiSuggestions.map((sugg, idx) => (<button key={idx} onClick={() => setNewItem(sugg.trim())} className="text-xs bg-white border border-yellow-300 text-yellow-800 px-2 py-1 rounded-md hover:bg-yellow-100 transition-colors">+ {sugg.trim()}</button>))}</div>
+        </div>
+      )}
+      <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+        <form onSubmit={handleAddRequest} className="flex gap-2"><input type="text" placeholder="Cosa serve?" className="flex-1 px-3 py-2 bg-slate-50 border rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500" value={newItem} onChange={e => setNewItem(e.target.value)} /><input type="text" placeholder="Q.tà" className="w-20 px-3 py-2 bg-slate-50 border rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500" value={quantity} onChange={e => setQuantity(e.target.value)} /><button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded-lg font-medium text-sm hover:bg-blue-700">Richiedi</button></form>
+      </div>
+      <div className="space-y-2">
+        {loading ? <Loader2 className="w-6 h-6 animate-spin mx-auto text-blue-600 my-4" /> : requests.length === 0 ? <p className="text-center text-slate-400 text-sm py-8">Nessuna richiesta di materiale attiva.</p> :
+          requests.map(req => (
+            <div key={req.id} className={`flex items-center justify-between p-3 rounded-lg border transition-colors ${req.status === 'ordered' ? 'bg-green-50 border-green-100 opacity-70' : 'bg-white border-slate-200'}`}>
+              <div className="flex items-center gap-3"><button onClick={() => toggleStatus(req)} disabled={!isAdmin} className={`w-5 h-5 rounded border flex items-center justify-center ${req.status === 'ordered' ? 'bg-green-500 border-green-500 text-white' : 'border-slate-300 text-transparent'} ${!isAdmin ? 'cursor-default' : 'cursor-pointer'}`}><CheckSquare className="w-3.5 h-3.5" /></button><div><p className={`font-medium text-sm ${req.status === 'ordered' ? 'line-through text-slate-500' : 'text-slate-800'}`}>{req.item} <span className="text-slate-500 font-normal">({req.quantity})</span></p><p className="text-[10px] text-slate-400">Richiesto da: {req.userName} • {req.createdAt ? new Date(req.createdAt.seconds * 1000).toLocaleDateString() : ''}</p></div></div>
+              {(isAdmin || req.userId === user.uid) && <button onClick={() => deleteRequest(req.id)} className="text-slate-300 hover:text-red-500 p-1"><Trash2 className="w-4 h-4" /></button>}
+            </div>
+          ))
+        }
+      </div>
+    </div>
+  );
+}
+
+function TasksView({ user, userData, isMaster, isAdmin, onSelectTask }) {
+  const [tasks, setTasks] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [title, setTitle] = useState('');
+  const [client, setClient] = useState('');
+  const [description, setDescription] = useState('');
+  const [isFormOpen, setIsFormOpen] = useState(false);
+
+  useEffect(() => {
+    const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'tasks'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      data.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+      setTasks(data);
+      setLoading(false);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const handleAddTask = async (e) => {
+    e.preventDefault();
+    if (!isAdmin) { alert("Solo gli Admin possono creare cantieri."); return; }
+    if (!title.trim() || !client.trim()) return;
+    try {
+      await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'tasks'), {
+        title, client, description, completed: false, createdAt: serverTimestamp(), userId: user.uid, authorName: userData?.name
+      });
+      await logOperation(userData, "Creazione Cantiere", `Nuovo cantiere: ${title}`);
+      setTitle(''); setClient(''); setDescription(''); setIsFormOpen(false);
+    } catch (err) { alert(err.message); }
+  };
+
+  const toggleTask = async (task, e) => {
+    e.stopPropagation();
+    try { await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'tasks', task.id), { completed: !task.completed }); } catch (err) {}
+  };
+
+  const deleteTask = async (taskId, e) => {
+    e.stopPropagation();
+    if (!isAdmin) { alert("Solo gli Admin possono eliminare."); return; }
+    if (!window.confirm("Eliminare definitivamente?")) return;
+    try { await deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'tasks', taskId)); } catch (err) {}
+  };
+
+  return (
+    <div className="space-y-6">
+      {isAdmin && !isFormOpen && (
+        <button onClick={() => setIsFormOpen(true)} className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-medium shadow-sm flex items-center justify-center gap-2 transition-all">
+          <Plus className="w-5 h-5" /> Registra Nuova Attività
+        </button>
+      )}
+
+      {isFormOpen && (
+        <div className="bg-white p-6 rounded-2xl shadow-lg border border-blue-100 animate-in fade-in slide-in-from-top-4">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="font-semibold text-slate-800 flex items-center gap-2"><ClipboardList className="w-5 h-5 text-blue-600" /> Dettagli Attività</h3>
+            <button onClick={() => setIsFormOpen(false)} className="text-slate-400 hover:text-slate-600 text-sm">Annulla</button>
+          </div>
+          <form onSubmit={handleAddTask} className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <input required type="text" value={title} onChange={e => setTitle(e.target.value)} className="w-full px-3 py-2.5 bg-slate-50 border rounded-lg" placeholder="Cantiere / Attività" />
+              <input required type="text" value={client} onChange={e => setClient(e.target.value)} className="w-full px-3 py-2.5 bg-slate-50 border rounded-lg" placeholder="Committente" />
+            </div>
+            <textarea value={description} onChange={e => setDescription(e.target.value)} className="w-full px-3 py-2.5 bg-slate-50 border rounded-lg" placeholder="Descrizione..." />
+            <div className="flex justify-end"><button type="submit" className="bg-blue-600 text-white px-8 py-2.5 rounded-lg font-medium">Salva</button></div>
+          </form>
+        </div>
+      )}
+
+      <div className="grid gap-4">
+        {loading ? <div className="text-center py-10"><Loader2 className="w-8 h-8 text-blue-600 animate-spin mx-auto" /></div> : tasks.length === 0 ? 
+          <div className="text-center py-16 bg-white rounded-2xl border border-dashed border-slate-300"><ClipboardList className="w-12 h-12 text-slate-300 mx-auto mb-3" /><h3 className="text-slate-900 font-medium">Nessuna attività registrata</h3></div> : 
+          tasks.map((task) => (
+            <div key={task.id} onClick={() => onSelectTask(task)} className={`group cursor-pointer relative bg-white rounded-xl border p-5 transition-all hover:ring-2 hover:ring-blue-500 hover:border-transparent hover:shadow-lg ${task.completed ? 'border-slate-100 bg-slate-50 opacity-75' : 'border-slate-200'}`}>
+              <div className="flex items-start gap-4">
+                <button onClick={(e) => toggleTask(task, e)} className={`mt-1 shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${task.completed ? 'bg-green-500 border-green-500 text-white' : 'border-slate-300 text-transparent hover:border-green-500'}`}><CheckCircle className="w-3.5 h-3.5" strokeWidth={3} /></button>
+                <div className="flex-1">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <h4 className={`text-lg font-bold ${task.completed ? 'text-slate-500 line-through' : 'text-slate-800'}`}>{task.title}</h4>
+                      <div className="flex items-center gap-2 text-sm text-slate-600 mt-1 font-medium"><User className="w-3.5 h-3.5" /> Committente: {task.client}</div>
+                    </div>
+                    {isAdmin && <button onClick={(e) => deleteTask(task.id, e)} className="p-2 text-slate-300 hover:text-red-500 rounded-lg"><Trash2 className="w-4 h-4" /></button>}
+                  </div>
+                  <div className="mt-3 flex items-center gap-3 text-xs text-slate-400 border-t border-slate-100 pt-3">
+                    <span className="flex items-center gap-1">Clicca per gestire materiali e foto</span>
+                    <span className="ml-auto text-blue-600 font-semibold group-hover:underline">Apri Cantiere →</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))
+        }
+      </div>
+    </div>
+  );
+}
+
+function MaterialsView({ user, userData, isMaster, isAdmin, context = 'warehouse', taskId = null }) {
+  const [materials, setMaterials] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [isFormOpen, setIsFormOpen] = useState(false);
+  const [formData, setFormData] = useState({
+    name: '', supplier: '', type: 'Elettrico', quantity: '', unit: 'pz', cost: '', code: ''
+  });
+
+  useEffect(() => {
+    const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'materials'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const filtered = context === 'site' ? data.filter(item => item.taskId === taskId) : data;
+      filtered.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+      setMaterials(filtered);
+      setLoading(false);
+    });
+    return () => unsubscribe();
+  }, [context, taskId]);
+
+  const handleChange = (e) => setFormData({ ...formData, [e.target.name]: e.target.value });
+
+  const handleAddMaterial = async (e) => {
+    e.preventDefault();
+    try {
+      await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'materials'), {
+        ...formData,
+        taskId: context === 'site' ? taskId : null,
+        createdAt: serverTimestamp(),
+        userId: user.uid,
+        authorName: userData?.name
+      });
+      setFormData({ name: '', supplier: '', type: 'Elettrico', quantity: '', unit: 'pz', cost: '', code: '' });
+      setIsFormOpen(false);
+    } catch (err) { alert(err.message); }
+  };
+
+  const deleteMaterial = async (id) => {
+    if (!isAdmin) { alert("Solo i Master possono eliminare."); return; }
+    if (!window.confirm("Eliminare materiale?")) return;
+    try { await deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'materials', id)); } catch (err) {}
+  };
+
+  return (
+    <div className="space-y-6">
+      {!isFormOpen && (
+        <button onClick={() => setIsFormOpen(true)} className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-medium shadow-sm flex items-center justify-center gap-2 transition-all">
+          <Plus className="w-5 h-5" /> 
+          {context === 'site' ? 'Carica Materiale per Cantiere' : 'Carica Nuovo Materiale'}
+        </button>
+      )}
+
+      {isFormOpen && (
+        <div className="bg-white p-6 rounded-2xl shadow-lg border border-blue-100 animate-in fade-in slide-in-from-top-4">
+          <div className="flex justify-between items-center mb-4"><h3 className="font-semibold text-slate-800 flex items-center gap-2"><Package className="w-5 h-5 text-blue-600" /> Scheda Materiale</h3><button onClick={() => setIsFormOpen(false)} className="text-slate-400 hover:text-slate-600 text-sm">Annulla</button></div>
+          <form onSubmit={handleAddMaterial} className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="col-span-1 md:col-span-2 space-y-1"><label className="text-xs font-bold text-slate-500 uppercase">Descrizione Articolo</label><input required name="name" value={formData.name} onChange={handleChange} className="w-full px-3 py-2.5 bg-slate-50 border rounded-lg" /></div>
+              <div className="space-y-1"><label className="text-xs font-bold text-slate-500 uppercase">Codice</label><input name="code" value={formData.code} onChange={handleChange} className="w-full px-3 py-2.5 bg-slate-50 border rounded-lg" /></div>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+               <div className="space-y-1"><label className="text-xs font-bold text-slate-500 uppercase">Fornitore</label><input required name="supplier" value={formData.supplier} onChange={handleChange} className="w-full px-3 py-2.5 bg-slate-50 border rounded-lg" /></div>
+               <div className="space-y-1"><label className="text-xs font-bold text-slate-500 uppercase">Tipo</label><select name="type" value={formData.type} onChange={handleChange} className="w-full px-3 py-2.5 bg-slate-50 border rounded-lg"><option>Elettrico</option><option>Idraulico</option><option>Edile</option><option>Ferramenta</option><option>Altro</option></select></div>
+               <div className="space-y-1"><label className="text-xs font-bold text-slate-500 uppercase">Q.tà</label><div className="flex"><input required type="number" name="quantity" value={formData.quantity} onChange={handleChange} className="w-full px-3 py-2.5 bg-slate-50 border rounded-l-lg" /><select name="unit" value={formData.unit} onChange={handleChange} className="bg-slate-100 border rounded-r-lg px-2"><option value="pz">pz</option><option value="m">m</option><option value="kg">kg</option><option value="cf">cf</option></select></div></div>
+               <div className="space-y-1"><label className="text-xs font-bold text-slate-500 uppercase">Costo (€)</label><input type="number" step="0.01" name="cost" value={formData.cost} onChange={handleChange} className="w-full px-3 py-2.5 bg-slate-50 border rounded-lg" /></div>
+            </div>
+            <div className="pt-2 flex justify-end"><button type="submit" className="bg-blue-600 text-white px-8 py-2.5 rounded-lg font-medium">Salva</button></div>
+          </form>
+        </div>
+      )}
+
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-slate-50 text-slate-500 border-b border-slate-200 uppercase text-xs font-bold">
+              <tr>
+                <th className="px-4 py-3">Articolo</th>
+                <th className="px-4 py-3">Fornitore</th>
+                <th className="px-4 py-3 text-center">Q.tà</th>
+                <th className="px-4 py-3 text-right">Totale</th>
+                {isAdmin && <th className="px-4 py-3 text-right">Azioni</th>}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {loading ? <tr><td colSpan="5" className="p-8 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-blue-600" /></td></tr> : materials.length === 0 ? <tr><td colSpan="5" className="p-8 text-center text-slate-400">Nessun materiale registrato</td></tr> : 
+                materials.map((item) => (
+                  <tr key={item.id} className="hover:bg-slate-50">
+                    <td className="px-4 py-3 font-medium text-slate-800">{item.name} {item.code && <span className="text-xs text-slate-400 block">{item.code}</span>}</td>
+                    <td className="px-4 py-3 text-slate-600">{item.supplier}</td>
+                    <td className="px-4 py-3 text-center">{item.quantity} {item.unit}</td>
+                    <td className="px-4 py-3 text-right font-bold text-slate-800">€ {(parseFloat(item.quantity||0)*parseFloat(item.cost||0)).toFixed(2)}</td>
+                    {isAdmin && <td className="px-4 py-3 text-right"><button onClick={() => deleteMaterial(item.id)} className="text-slate-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button></td>}
+                  </tr>
+                ))
+              }
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );
