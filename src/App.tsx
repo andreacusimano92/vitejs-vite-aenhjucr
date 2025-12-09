@@ -302,7 +302,7 @@ function Dashboard({ user, userData }) {
         </div>
       </header>
 
-      {/* Contenuto Principale */}
+      {/* Contenuto Principale - Logica di Navigazione Corretta */}
       <main className="max-w-7xl mx-auto p-4 sm:p-6 space-y-6">
         {selectedTask ? (
           <TaskDetailView 
@@ -325,15 +325,23 @@ function Dashboard({ user, userData }) {
            <VehiclesView user={user} userData={userData} isAdmin={isAdmin} />
         ) : activeTab === 'reports' ? (
            <DailyReportsView user={user} userData={userData} isMaster={isMaster} isAdmin={isAdmin} />
-        ) : activeTab === 'personal' ? (
-           <PersonalAreaView user={user} userData={userData} isMaster={isMaster} isAdmin={isAdmin} />
-        ) : (
+        ) : activeTab === 'materials' ? (
           <MaterialsView 
             user={user} 
             userData={userData} 
             isMaster={isMaster}
             isAdmin={isAdmin}
             context="warehouse" 
+          />
+        ) : activeTab === 'personal' ? (
+           <PersonalAreaView user={user} userData={userData} isMaster={isMaster} isAdmin={isAdmin} />
+        ) : (
+           <TasksView 
+            user={user} 
+            userData={userData} 
+            isMaster={isMaster}
+            isAdmin={isAdmin}
+            onSelectTask={setSelectedTask} 
           />
         )}
       </main>
@@ -1445,6 +1453,109 @@ function TasksView({ user, userData, isMaster, isAdmin, onSelectTask }) {
             </div>
           ))
         }
+      </div>
+    </div>
+  );
+}
+
+function MaterialsView({ user, userData, isMaster, isAdmin, context = 'warehouse', taskId = null }) {
+  const [materials, setMaterials] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [isFormOpen, setIsFormOpen] = useState(false);
+  const [formData, setFormData] = useState({
+    name: '', supplier: '', type: 'Elettrico', quantity: '', unit: 'pz', cost: '', code: ''
+  });
+
+  useEffect(() => {
+    const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'materials'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const filtered = context === 'site' ? data.filter(item => item.taskId === taskId) : data;
+      filtered.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+      setMaterials(filtered);
+      setLoading(false);
+    });
+    return () => unsubscribe();
+  }, [context, taskId]);
+
+  const handleChange = (e) => setFormData({ ...formData, [e.target.name]: e.target.value });
+
+  const handleAddMaterial = async (e) => {
+    e.preventDefault();
+    try {
+      await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'materials'), {
+        ...formData,
+        taskId: context === 'site' ? taskId : null,
+        createdAt: serverTimestamp(),
+        userId: user.uid,
+        authorName: userData?.name
+      });
+      setFormData({ name: '', supplier: '', type: 'Elettrico', quantity: '', unit: 'pz', cost: '', code: '' });
+      setIsFormOpen(false);
+    } catch (err) { alert(err.message); }
+  };
+
+  const deleteMaterial = async (id) => {
+    if (!isAdmin) { alert("Solo i Master possono eliminare."); return; }
+    if (!window.confirm("Eliminare materiale?")) return;
+    try { await deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'materials', id)); } catch (err) {}
+  };
+
+  return (
+    <div className="space-y-6">
+      {!isFormOpen && (
+        <button onClick={() => setIsFormOpen(true)} className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-medium shadow-sm flex items-center justify-center gap-2 transition-all">
+          <Plus className="w-5 h-5" /> 
+          {context === 'site' ? 'Carica Materiale per Cantiere' : 'Carica Nuovo Materiale'}
+        </button>
+      )}
+
+      {isFormOpen && (
+        <div className="bg-white p-6 rounded-2xl shadow-lg border border-blue-100 animate-in fade-in slide-in-from-top-4">
+          <div className="flex justify-between items-center mb-4"><h3 className="font-semibold text-slate-800 flex items-center gap-2"><Package className="w-5 h-5 text-blue-600" /> Scheda Materiale</h3><button onClick={() => setIsFormOpen(false)} className="text-slate-400 hover:text-slate-600 text-sm">Annulla</button></div>
+          <form onSubmit={handleAddMaterial} className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="col-span-1 md:col-span-2 space-y-1"><label className="text-xs font-bold text-slate-500 uppercase">Descrizione Articolo</label><input required name="name" value={formData.name} onChange={handleChange} className="w-full px-3 py-2.5 bg-slate-50 border rounded-lg" /></div>
+              <div className="space-y-1"><label className="text-xs font-bold text-slate-500 uppercase">Codice</label><input name="code" value={formData.code} onChange={handleChange} className="w-full px-3 py-2.5 bg-slate-50 border rounded-lg" /></div>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+               <div className="space-y-1"><label className="text-xs font-bold text-slate-500 uppercase">Fornitore</label><input required name="supplier" value={formData.supplier} onChange={handleChange} className="w-full px-3 py-2.5 bg-slate-50 border rounded-lg" /></div>
+               <div className="space-y-1"><label className="text-xs font-bold text-slate-500 uppercase">Tipo</label><select name="type" value={formData.type} onChange={handleChange} className="w-full px-3 py-2.5 bg-slate-50 border rounded-lg"><option>Elettrico</option><option>Idraulico</option><option>Edile</option><option>Ferramenta</option><option>Altro</option></select></div>
+               <div className="space-y-1"><label className="text-xs font-bold text-slate-500 uppercase">Q.tà</label><div className="flex"><input required type="number" name="quantity" value={formData.quantity} onChange={handleChange} className="w-full px-3 py-2.5 bg-slate-50 border rounded-l-lg" /><select name="unit" value={formData.unit} onChange={handleChange} className="bg-slate-100 border rounded-r-lg px-2"><option value="pz">pz</option><option value="m">m</option><option value="kg">kg</option><option value="cf">cf</option></select></div></div>
+               <div className="space-y-1"><label className="text-xs font-bold text-slate-500 uppercase">Costo (€)</label><input type="number" step="0.01" name="cost" value={formData.cost} onChange={handleChange} className="w-full px-3 py-2.5 bg-slate-50 border rounded-lg" /></div>
+            </div>
+            <div className="pt-2 flex justify-end"><button type="submit" className="bg-blue-600 text-white px-8 py-2.5 rounded-lg font-medium">Salva</button></div>
+          </form>
+        </div>
+      )}
+
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-slate-50 text-slate-500 border-b border-slate-200 uppercase text-xs font-bold">
+              <tr>
+                <th className="px-4 py-3">Articolo</th>
+                <th className="px-4 py-3">Fornitore</th>
+                <th className="px-4 py-3 text-center">Q.tà</th>
+                <th className="px-4 py-3 text-right">Totale</th>
+                {isAdmin && <th className="px-4 py-3 text-right">Azioni</th>}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {loading ? <tr><td colSpan="5" className="p-8 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-blue-600" /></td></tr> : materials.length === 0 ? <tr><td colSpan="5" className="p-8 text-center text-slate-400">Nessun materiale registrato</td></tr> : 
+                materials.map((item) => (
+                  <tr key={item.id} className="hover:bg-slate-50">
+                    <td className="px-4 py-3 font-medium text-slate-800">{item.name} {item.code && <span className="text-xs text-slate-400 block">{item.code}</span>}</td>
+                    <td className="px-4 py-3 text-slate-600">{item.supplier}</td>
+                    <td className="px-4 py-3 text-center">{item.quantity} {item.unit}</td>
+                    <td className="px-4 py-3 text-right font-bold text-slate-800">€ {(parseFloat(item.quantity||0)*parseFloat(item.cost||0)).toFixed(2)}</td>
+                    {isAdmin && <td className="px-4 py-3 text-right"><button onClick={() => deleteMaterial(item.id)} className="text-slate-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button></td>}
+                  </tr>
+                ))
+              }
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );
