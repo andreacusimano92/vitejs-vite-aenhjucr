@@ -121,16 +121,19 @@ const logOperation = async (userData, action, details) => {
   try {
     if (navigator.geolocation) {
       const pos = await new Promise((resolve, reject) => {
-         navigator.geolocation.getCurrentPosition(resolve, reject, {timeout: 5000});
+         navigator.geolocation.getCurrentPosition(resolve, reject, {timeout: 3000});
       });
       location = `${pos.coords.latitude.toFixed(5)}, ${pos.coords.longitude.toFixed(5)}`;
     }
   } catch(e) { location = "Posizione non rilevata"; }
 
   try {
+    const uid = userData?.uid || 'unknown';
+    const name = userData?.name || 'Sconosciuto';
+    
     await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'audit_logs'), {
-      userId: userData.uid,
-      userName: userData.name,
+      userId: uid,
+      userName: name,
       action,
       details,
       location,
@@ -213,8 +216,10 @@ function Dashboard({ user, userData }) {
 
   const handleLogout = () => signOut(auth);
   
-  const isMaster = userData?.role === 'Master';
-  const isAdmin = userData?.role === 'Master' && userData?.access === 'full'; 
+  // Safe user data access
+  const safeUserData = userData || { role: 'Dipendente', name: 'Utente', uid: user?.uid };
+  const isMaster = safeUserData.role === 'Master';
+  const isAdmin = safeUserData.role === 'Master' && safeUserData.access === 'full'; 
 
   useEffect(() => {
     if (!user) return;
@@ -246,7 +251,7 @@ function Dashboard({ user, userData }) {
             <div>
               <h1 className="font-bold text-slate-800 leading-tight hidden sm:block">ImpresadariAPP</h1>
               <div className="flex gap-2">
-                <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full ${isMaster ? 'bg-purple-100 text-purple-700' : 'bg-slate-100 text-slate-600'}`}>{userData?.role}</span>
+                <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full ${isMaster ? 'bg-purple-100 text-purple-700' : 'bg-slate-100 text-slate-600'}`}>{safeUserData.role}</span>
                 {isMaster && !isAdmin && <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-700">Limitato</span>}
               </div>
             </div>
@@ -291,7 +296,7 @@ function Dashboard({ user, userData }) {
             </div>
 
             <div className="hidden md:block text-right">
-              <p className="text-xs font-bold text-slate-800">{userData?.name}</p>
+              <p className="text-xs font-bold text-slate-800">{safeUserData.name}</p>
               <p className="text-[10px] text-green-600 flex items-center justify-end gap-1"><span className="w-1.5 h-1.5 rounded-full bg-green-500"></span>Online</p>
             </div>
             <button onClick={handleLogout} className="p-2 hover:bg-slate-100 rounded-full text-slate-500 hover:text-red-600 transition-colors"><LogOut className="w-5 h-5" /></button>
@@ -304,7 +309,7 @@ function Dashboard({ user, userData }) {
           <TaskDetailView 
             task={selectedTask} 
             user={user} 
-            userData={userData} 
+            userData={safeUserData} 
             isMaster={isMaster}
             isAdmin={isAdmin}
             onBack={() => setSelectedTask(null)} 
@@ -312,29 +317,29 @@ function Dashboard({ user, userData }) {
         ) : activeTab === 'tasks' ? (
           <TasksView 
             user={user} 
-            userData={userData} 
+            userData={safeUserData} 
             isMaster={isMaster}
             isAdmin={isAdmin}
             onSelectTask={setSelectedTask} 
           />
         ) : activeTab === 'vehicles' ? (
-           <VehiclesView user={user} userData={userData} isAdmin={isAdmin} isMaster={isMaster} />
+           <VehiclesView user={user} userData={safeUserData} isAdmin={isAdmin} isMaster={isMaster} />
         ) : activeTab === 'reports' ? (
-           <DailyReportsView user={user} userData={userData} isMaster={isMaster} isAdmin={isAdmin} />
+           <DailyReportsView user={user} userData={safeUserData} isMaster={isMaster} isAdmin={isAdmin} />
         ) : activeTab === 'materials' ? (
           <MaterialsView 
             user={user} 
-            userData={userData} 
+            userData={safeUserData} 
             isMaster={isMaster}
             isAdmin={isAdmin}
             context="warehouse" 
           />
         ) : activeTab === 'personal' ? (
-           <PersonalAreaView user={user} userData={userData} isMaster={isMaster} isAdmin={isAdmin} />
+           <PersonalAreaView user={user} userData={safeUserData} isMaster={isMaster} isAdmin={isAdmin} />
         ) : (
            <TasksView 
             user={user} 
-            userData={userData} 
+            userData={safeUserData} 
             isMaster={isMaster}
             isAdmin={isAdmin}
             onSelectTask={setSelectedTask} 
@@ -500,6 +505,220 @@ function VehiclesView({ user, userData, isAdmin, isMaster }) {
       </div>
     </div>
   )
+}
+
+// --- NUOVA TAB: AREA PERSONALE (Documenti & Ferie & AUDIT LOG) ---
+function PersonalAreaView({ user, userData, isMaster, isAdmin }) {
+  const [subTab, setSubTab] = useState('leaves'); 
+  const [targetUser, setTargetUser] = useState(user.uid); 
+  const [usersList, setUsersList] = useState([]);
+
+  useEffect(() => {
+    if(isMaster) {
+      const list = Object.entries(USERS_CONFIG).map(([k, v]) => ({ username: k, ...v }));
+      setUsersList(list);
+    }
+  }, [isMaster]);
+  
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-4 rounded-xl border border-slate-200">
+        <div><h2 className="text-xl font-bold text-slate-800 flex items-center gap-2"><UserCheck className="w-6 h-6 text-blue-600"/> Area Personale</h2><p className="text-sm text-slate-500">Gestione ferie, permessi e documenti.</p></div>
+        {isMaster && (
+          <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-lg border border-slate-200">
+            <span className="text-xs font-bold uppercase text-slate-500">Visualizza:</span>
+            <select className="bg-transparent text-sm font-medium outline-none text-slate-700" onChange={(e) => setTargetUser(e.target.value)}>
+              <option value={user.uid}>Mio Profilo</option>
+              {usersList.map(u => (<option key={u.username} value={u.username}>{u.name}</option>))}
+            </select>
+          </div>
+        )}
+      </div>
+
+      <div className="flex gap-2 border-b border-slate-200 overflow-x-auto">
+        <button onClick={() => setSubTab('leaves')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${subTab === 'leaves' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500'}`}>Ferie & Permessi</button>
+        <button onClick={() => setSubTab('docs')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${subTab === 'docs' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500'}`}>Documenti Personali</button>
+        {isMaster && <button onClick={() => setSubTab('logs')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${subTab === 'logs' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500'}`}>Registro Log</button>}
+      </div>
+
+      {subTab === 'leaves' && <LeaveRequestsPanel currentUser={user} targetIdentifier={targetUser} isMaster={isMaster} isAdmin={isAdmin} userData={userData} />}
+      {subTab === 'docs' && <PersonalDocsPanel currentUser={user} targetIdentifier={targetUser} isMaster={isMaster} isAdmin={isAdmin} />}
+      {subTab === 'logs' && isMaster && <AuditLogView isAdmin={isAdmin} />}
+    </div>
+  );
+}
+
+// --- NUOVO COMPONENTE: AUDIT LOG ---
+function AuditLogView({ isAdmin }) {
+  const [logs, setLogs] = useState([]);
+  
+  useEffect(() => {
+    // Carica ultimi 50 log
+    const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'audit_logs'), orderBy('createdAt', 'desc'), limit(50));
+    const unsub = onSnapshot(q, (snap) => setLogs(snap.docs.map(d => ({id: d.id, ...d.data()}))));
+    return () => unsub();
+  }, []);
+
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+      <div className="p-4 bg-slate-50 border-b border-slate-200"><h3 className="font-bold text-slate-700 flex gap-2"><MapPin className="w-5 h-5"/> Registro Operazioni & Posizioni</h3></div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-left text-sm">
+          <thead className="bg-slate-50 text-slate-500 text-xs uppercase"><tr><th className="px-4 py-2">Data/Ora</th><th className="px-4 py-2">Utente</th><th className="px-4 py-2">Azione</th><th className="px-4 py-2">Dettagli</th><th className="px-4 py-2">Posizione</th></tr></thead>
+          <tbody className="divide-y divide-slate-100">
+            {logs.map(log => (
+              <tr key={log.id} className="hover:bg-slate-50">
+                <td className="px-4 py-2 text-xs text-slate-500">{log.createdAt?.seconds ? new Date(log.createdAt.seconds * 1000).toLocaleString() : ''}</td>
+                <td className="px-4 py-2 font-medium">{log.userName}</td>
+                <td className="px-4 py-2"><span className="px-2 py-1 rounded bg-blue-50 text-blue-700 text-xs font-bold">{log.action}</span></td>
+                <td className="px-4 py-2 text-slate-600">{log.details}</td>
+                <td className="px-4 py-2 text-xs font-mono text-slate-400">{log.location}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+// Sotto-componente: Ferie
+function LeaveRequestsPanel({ currentUser, targetIdentifier, isMaster, isAdmin, userData }) {
+  const [leaves, setLeaves] = useState([]);
+  const [newRequest, setNewRequest] = useState({ start: '', end: '', type: 'Ferie', reason: '' });
+
+  useEffect(() => {
+    const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'leaves'));
+    const unsub = onSnapshot(q, (snap) => {
+      const all = snap.docs.map(d => ({id: d.id, ...d.data()}));
+      const filtered = all.filter(l => {
+         if (targetIdentifier === currentUser.uid) return l.userId === currentUser.uid;
+         return l.username === targetIdentifier; 
+      }).sort((a,b) => b.createdAt?.seconds - a.createdAt?.seconds);
+      setLeaves(filtered);
+    });
+    return () => unsub();
+  }, [targetIdentifier, currentUser]);
+
+  const requestLeave = async (e) => {
+    e.preventDefault();
+    if (!newRequest.start || !newRequest.end) return;
+    const cleanUsername = currentUser.email?.split('@')[0] || 'unknown';
+    await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'leaves'), {
+      ...newRequest,
+      userId: currentUser.uid,
+      username: cleanUsername, 
+      fullName: userData?.name || 'Utente',
+      status: 'pending',
+      createdAt: serverTimestamp()
+    });
+    await logOperation(userData, "Richiesta Ferie", `Richieste ferie dal ${newRequest.start}`);
+    await sendNotification('all_masters', 'Richiesta Ferie', `${userData?.name} ha chiesto ferie.`);
+    setNewRequest({ start: '', end: '', type: 'Ferie', reason: '' });
+  };
+
+  const handleStatus = async (id, status, reqUserUid) => {
+    if (!isAdmin) return; 
+    await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'leaves', id), { status });
+    await sendNotification(reqUserUid, `Richiesta ${status}`, `La tua richiesta è stata ${status}.`);
+  };
+
+  const isViewingSelf = targetIdentifier === currentUser.uid;
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      {isViewingSelf && (
+        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm h-fit">
+          <h3 className="font-bold text-slate-700 mb-4">Nuova Richiesta</h3>
+          <form onSubmit={requestLeave} className="space-y-3">
+            <div><label className="text-xs font-bold text-slate-500 uppercase">Tipo</label><select className="w-full border rounded-lg p-2 text-sm" value={newRequest.type} onChange={e=>setNewRequest({...newRequest, type: e.target.value})}><option>Ferie</option><option>Permesso (Ore)</option><option>Malattia</option></select></div>
+            <div><label className="text-xs font-bold text-slate-500 uppercase">Dal</label><input type="date" className="w-full border rounded-lg p-2 text-sm" value={newRequest.start} onChange={e=>setNewRequest({...newRequest, start: e.target.value})}/></div>
+            <div><label className="text-xs font-bold text-slate-500 uppercase">Al</label><input type="date" className="w-full border rounded-lg p-2 text-sm" value={newRequest.end} onChange={e=>setNewRequest({...newRequest, end: e.target.value})}/></div>
+            <div><label className="text-xs font-bold text-slate-500 uppercase">Motivo</label><textarea className="w-full border rounded-lg p-2 text-sm" rows="2" value={newRequest.reason} onChange={e=>setNewRequest({...newRequest, reason: e.target.value})}/></div>
+            <button type="submit" className="w-full bg-blue-600 text-white p-2 rounded-lg font-medium hover:bg-blue-700">Invia Richiesta</button>
+          </form>
+        </div>
+      )}
+      <div className={`col-span-1 ${isViewingSelf ? 'md:col-span-2' : 'md:col-span-3'} space-y-3`}>
+        {leaves.map(req => (
+            <div key={req.id} className="bg-white p-4 rounded-xl border border-slate-200 flex justify-between items-center">
+              <div><div className="flex items-center gap-2"><span className={`px-2 py-0.5 rounded text-xs font-bold ${req.status === 'approved' ? 'bg-green-100 text-green-700' : req.status === 'rejected' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>{req.status === 'approved' ? 'APPROVATA' : req.status === 'rejected' ? 'RIFIUTATA' : 'IN ATTESA'}</span><h4 className="font-bold text-slate-800">{req.type}</h4></div><p className="text-sm text-slate-600 mt-1">{new Date(req.start).toLocaleDateString()} - {new Date(req.end).toLocaleDateString()}</p></div>
+              {isAdmin && !isViewingSelf && req.status === 'pending' && (
+                <div className="flex gap-2"><button onClick={() => handleStatus(req.id, 'approved', req.userId)} className="bg-green-600 text-white px-3 py-1 rounded-lg text-xs">Accetta</button><button onClick={() => handleStatus(req.id, 'rejected', req.userId)} className="bg-red-50 text-red-600 border px-3 py-1 rounded-lg text-xs">Rifiuta</button></div>
+              )}
+            </div>
+          ))}
+      </div>
+    </div>
+  );
+}
+
+// Sotto-componente: Documenti Personali
+function PersonalDocsPanel({ currentUser, targetIdentifier, isMaster, isAdmin }) {
+  const [docs, setDocs] = useState([]);
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef(null);
+
+  useEffect(() => {
+    const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'personal_docs'));
+    const unsub = onSnapshot(q, (snap) => {
+      const all = snap.docs.map(d => ({id: d.id, ...d.data()}));
+      const filtered = all.filter(d => {
+         if (targetIdentifier === currentUser.uid) return d.targetUserId === currentUser.uid;
+         return d.targetUsername === targetIdentifier;
+      });
+      setDocs(filtered);
+    });
+    return () => unsub();
+  }, [targetIdentifier, currentUser]);
+
+  const handleUpload = async (e) => {
+    if (!isAdmin) return; 
+    const file = e.target.files[0];
+    if(!file) return;
+    setUploading(true);
+    const reader = new FileReader();
+    reader.onloadend = async () => {
+      const cleanUsername = currentUser.email?.split('@')[0] || 'unknown';
+      await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'personal_docs'), {
+        targetUsername: targetIdentifier === currentUser.uid ? cleanUsername : targetIdentifier,
+        targetUserId: targetIdentifier === currentUser.uid ? currentUser.uid : null,
+        name: file.name,
+        data: reader.result,
+        createdAt: serverTimestamp()
+      });
+      setUploading(false);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const deleteDocFile = async (id) => {
+    if(!isAdmin) return;
+    if(!window.confirm("Eliminare?")) return;
+    await deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'personal_docs', id));
+  };
+
+  const isViewingOther = targetIdentifier !== currentUser.uid;
+
+  return (
+    <div className="space-y-6">
+      {isAdmin && isViewingOther && (
+        <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl flex items-center justify-between">
+          <div><h4 className="font-bold text-blue-800 text-sm">Carica Documento</h4><p className="text-xs text-blue-600">Buste paga, comunicazioni.</p></div>
+          <input type="file" ref={fileRef} className="hidden" onChange={handleUpload} />
+          <button onClick={() => fileRef.current?.click()} disabled={uploading} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium flex gap-2">{uploading ? <Loader2 className="w-4 h-4 animate-spin"/> : <FileUp className="w-4 h-4"/>} Carica</button>
+        </div>
+      )}
+      <div className="grid gap-3">
+        {docs.map(d => (
+            <div key={d.id} className="flex items-center justify-between p-4 bg-white border border-slate-200 rounded-xl">
+              <div className="flex items-center gap-3"><FileText className="w-8 h-8 text-slate-300"/><div><h4 className="font-bold text-slate-800 text-sm">{d.name}</h4><p className="text-xs text-slate-400">{d.createdAt ? new Date(d.createdAt.seconds * 1000).toLocaleDateString() : ''}</p></div></div>
+              <div className="flex gap-2"><a href={d.data} download={d.name} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg"><Download className="w-4 h-4"/></a>{isAdmin && <button onClick={() => deleteDocFile(d.id)} className="p-2 text-red-600 hover:bg-red-50 rounded-lg"><Trash2 className="w-4 h-4"/></button>}</div>
+            </div>
+          ))}
+      </div>
+    </div>
+  );
 }
 
 // --- VISTA DETTAGLIO CANTIERE ---
@@ -988,7 +1207,7 @@ function SiteDocuments({ task, user, isAdmin, userData }) {
     reader.onloadend = async () => {
       try {
         await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'documents'), {
-          taskId: task.id, name: file.name, type: docType, data: reader.result, uploadedBy: user.email.split('@')[0], createdAt: serverTimestamp()
+          taskId: task.id, name: file.name, type: docType, data: reader.result, uploadedBy: user.email?.split('@')[0] || 'Utente', createdAt: serverTimestamp()
         });
         await logOperation(userData, "Upload Documento Cantiere", `Caricato ${docType} in ${task.title}`);
         await sendNotification('all', 'Nuovo Documento', `Caricato documento ${docType} per ${task.title}.`);
