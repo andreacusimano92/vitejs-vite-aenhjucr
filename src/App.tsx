@@ -97,7 +97,7 @@ const db = getFirestore(app);
 const APP_ID = typeof __app_id !== 'undefined' ? __app_id : 'impresadaria-v1';
 const STANDARD_HOURLY_RATE = 30.00; 
 
-// --- INTEGRAZIONE AI (GEMINI - TESTO & VISION) ---
+// --- INTEGRAZIONE AI (GEMINI) ---
 const callGeminiAI = async (prompt, imageBase64 = null) => {
   const apiKey = ""; 
   try {
@@ -109,8 +109,8 @@ const callGeminiAI = async (prompt, imageBase64 = null) => {
             { text: prompt },
             ...(imageBase64 ? [{
               inlineData: {
-                mimeType: "image/jpeg", // Default assumes JPEG/PNG compatibility
-                data: imageBase64.split(',')[1] // Remove data:image/jpeg;base64, prefix
+                mimeType: "image/jpeg", 
+                data: imageBase64.split(',')[1] 
               }
             }] : [])
           ]
@@ -192,7 +192,8 @@ const USERS_CONFIG = {
   'a.ingrosso': { role: 'Dipendente', name: 'Antonio Ingrosso' },
   'g.granio': { role: 'Dipendente', name: 'Giuseppe Granio' },
   'c.motolese': { role: 'Dipendente', name: 'Cosimo Motolese' },
-  'o.camassa': { role: 'Dipendente', name: 'Osvaldo Camassa' }
+  'o.camassa': { role: 'Dipendente', name: 'Osvaldo Camassa' },
+  'c.tardiota': { role: 'Dipendente', name: 'Carmine Tardiota' }
 };
 
 // --- COMPONENTE PRINCIPALE ---
@@ -1369,6 +1370,7 @@ function SiteTeam({ task, isAdmin }) {
 
   useEffect(() => { setAssigned(task.assignedTeam || []); }, [task.assignedTeam]);
 
+  // FIX: Ora carichiamo tutti gli utenti dalla configurazione per permettere assegnazione anche dei Master
   const allStaff = Object.values(USERS_CONFIG); 
 
   const getRoleByName = (name) => {
