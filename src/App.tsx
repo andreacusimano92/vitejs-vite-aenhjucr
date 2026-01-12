@@ -74,7 +74,9 @@ import {
   MapPin,
   History,
   Send,
-  ShieldAlert
+  ShieldAlert,
+  Timer,
+  Eye
 } from 'lucide-react';
 
 // --- CONFIGURAZIONE ---
@@ -95,16 +97,33 @@ const db = getFirestore(app);
 const APP_ID = typeof __app_id !== 'undefined' ? __app_id : 'impresadaria-v1';
 const STANDARD_HOURLY_RATE = 30.00; 
 
-// --- INTEGRAZIONE AI (GEMINI) ---
-const callGeminiAI = async (prompt) => {
+// --- INTEGRAZIONE AI (GEMINI - TESTO & VISION) ---
+const callGeminiAI = async (prompt, imageBase64 = null) => {
   const apiKey = ""; 
   try {
+    const requestBody = {
+      contents: [
+        {
+          role: "user",
+          parts: [
+            { text: prompt },
+            ...(imageBase64 ? [{
+              inlineData: {
+                mimeType: "image/jpeg", // Default assumes JPEG/PNG compatibility
+                data: imageBase64.split(',')[1] // Remove data:image/jpeg;base64, prefix
+              }
+            }] : [])
+          ]
+        }
+      ]
+    };
+
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+        body: JSON.stringify(requestBody)
       }
     );
     const data = await response.json();
@@ -142,20 +161,14 @@ const logOperation = async (userData, action, details) => {
   } catch(e) { console.error("Log error", e); }
 };
 
-// --- CONFIGURAZIONE UTENTI ---
-const USERS_CONFIG = {
-  'a.cusimano': { role: 'Master', access: 'full', name: 'Andrea Cusimano' },
-  'f.gentile': { role: 'Master', access: 'full', name: 'Francesco Gentile' },
-  'm.gentile': { role: 'Master', access: 'limited', name: 'Cosimo Gentile' },
-  'g.gentile': { role: 'Master', access: 'limited', name: 'Giuseppe Gentile' },
-  'f.devincentis': { role: 'Dipendente', name: 'Francesco De Vincentis' },
-  'a.ingrosso': { role: 'Dipendente', name: 'Antonio Ingrosso' },
-  'g.granio': { role: 'Dipendente', name: 'Giuseppe Granio' },
-  'c.motolese': { role: 'Dipendente', name: 'Cosimo Motolese' },
-  'o.camassa': { role: 'Dipendente', name: 'Osvaldo Camassa' }
-};
+// --- UTILITIES & HELPERS ---
+const LoadingScreen = () => (
+  <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50 text-slate-500">
+    <Loader2 className="w-10 h-10 animate-spin text-blue-600 mb-4" />
+    <p>Caricamento sistema...</p>
+  </div>
+);
 
-// --- HELPER NOTIFICHE ---
 const sendNotification = async (targetUserId, title, message, type = 'info') => {
   try {
     await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'notifications'), {
@@ -167,6 +180,19 @@ const sendNotification = async (targetUserId, title, message, type = 'info') => 
       createdAt: serverTimestamp()
     });
   } catch (e) { console.error("Notify Error", e); }
+};
+
+// --- CONFIGURAZIONE UTENTI ---
+const USERS_CONFIG = {
+  'a.cusimano': { role: 'Master', access: 'full', name: 'Andrea Cusimano' },
+  'f.gentile': { role: 'Master', access: 'full', name: 'Francesco Gentile' },
+  'm.gentile': { role: 'Master', access: 'limited', name: 'Cosimo Gentile' },
+  'g.gentile': { role: 'Master', access: 'limited', name: 'Giuseppe Gentile' },
+  'f.devincentis': { role: 'Dipendente', name: 'Francesco De Vincentis' },
+  'a.ingrosso': { role: 'Dipendente', name: 'Antonio Ingrosso' },
+  'g.granio': { role: 'Dipendente', name: 'Giuseppe Granio' },
+  'c.motolese': { role: 'Dipendente', name: 'Cosimo Motolese' },
+  'o.camassa': { role: 'Dipendente', name: 'Osvaldo Camassa' }
 };
 
 // --- COMPONENTE PRINCIPALE ---
@@ -199,15 +225,60 @@ export default function App() {
   );
 }
 
-// --- UTILITIES ---
-const LoadingScreen = () => (
-  <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50 text-slate-500">
-    <Loader2 className="w-10 h-10 animate-spin text-blue-600 mb-4" />
-    <p>Caricamento sistema...</p>
-  </div>
-);
+// --- SCREEN COMPONENTS ---
 
-// --- DASHBOARD & ROUTING ---
+function AuthScreen() {
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [imgError, setImgError] = useState(false); 
+
+  const handleAuth = async (e) => {
+    e.preventDefault();
+    setError('');
+    setIsSubmitting(true);
+    const cleanUsername = username.trim().toLowerCase();
+    const email = `${cleanUsername}@impresadaria.app`;
+
+    if (password.length < 6) { setError("Password troppo corta (min. 6 caratteri)."); setIsSubmitting(false); return; }
+
+    try { await signInWithEmailAndPassword(auth, email, password); } 
+    catch (loginError) {
+      if (loginError.code === 'auth/user-not-found' || loginError.code === 'auth/invalid-credential') {
+        try { await createUserWithEmailAndPassword(auth, email, password); } catch (regError) { setError("Errore creazione: " + regError.message); }
+      } else if (loginError.code === 'auth/wrong-password') { setError("Password errata."); } else { setError("Errore: " + loginError.message); }
+    } finally { setIsSubmitting(false); }
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center p-4 bg-slate-100">
+      <div className="max-w-md w-full bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
+        <div className="bg-blue-800 p-10 text-center relative overflow-hidden">
+          <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-blue-700 to-indigo-900 opacity-95"></div>
+          <div className="relative z-10 flex flex-col items-center">
+            <div className="w-24 h-24 bg-white rounded-2xl flex items-center justify-center mb-5 shadow-2xl transform hover:scale-105 transition-transform duration-300 overflow-hidden p-2">
+              {!imgError ? <img src="logo.jpg" alt="Logo" className="w-full h-full object-contain" onError={() => setImgError(true)} /> : <Building2 className="w-12 h-12 text-blue-800" />}
+            </div>
+            <h1 className="text-3xl font-black text-white tracking-tight mb-1">ImpresadariAPP</h1>
+            <div className="h-1 w-20 bg-blue-400 rounded-full mb-3"></div>
+            <p className="text-blue-100 text-sm font-medium tracking-wide">L'app ufficiale di<br/><span className="font-bold text-white text-base">Impresa d'Aria Srl</span></p>
+          </div>
+        </div>
+        <div className="p-8">
+          {error && <div className="mb-6 p-4 bg-red-50 border-l-4 border-red-500 rounded-r-lg text-red-700 text-sm font-medium">{error}</div>}
+          <form onSubmit={handleAuth} className="space-y-5">
+            <div className="space-y-1.5"><label className="text-xs font-bold text-slate-500 uppercase tracking-wider ml-1">Username</label><div className="relative group"><User className="w-5 h-5 text-slate-400 absolute left-3 top-3.5 group-focus-within:text-blue-600 transition-colors" /><input type="text" required value={username} onChange={(e) => setUsername(e.target.value)} className="w-full pl-10 pr-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium text-slate-700" placeholder="es. a.cusimano" autoCapitalize="none" /></div></div>
+            <div className="space-y-1.5"><label className="text-xs font-bold text-slate-500 uppercase tracking-wider ml-1">Password</label><div className="relative group"><Lock className="w-5 h-5 text-slate-400 absolute left-3 top-3.5 group-focus-within:text-blue-600 transition-colors" /><input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} className="w-full pl-10 pr-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium text-slate-700" placeholder="••••••" /></div></div>
+            <button type="submit" disabled={isSubmitting} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-xl transition-all shadow-lg shadow-blue-500/30 flex items-center justify-center gap-2 mt-6">{isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Accedi'}</button>
+          </form>
+          <div className="mt-8 text-center border-t border-slate-100 pt-6"><p className="text-xs text-slate-400">© 2024 Impresa d'Aria Srl. Tutti i diritti riservati.</p></div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Dashboard({ user, userData }) {
   const [selectedTask, setSelectedTask] = useState(null); 
   const [activeTab, setActiveTab] = useState('tasks'); 
@@ -216,7 +287,6 @@ function Dashboard({ user, userData }) {
 
   const handleLogout = () => signOut(auth);
   
-  // Safe user data access
   const safeUserData = userData || { role: 'Dipendente', name: 'Utente', uid: user?.uid };
   const isMaster = safeUserData.role === 'Master';
   const isAdmin = safeUserData.role === 'Master' && safeUserData.access === 'full'; 
@@ -776,7 +846,7 @@ function TaskDetailView({ task, user, userData, isMaster, isAdmin, onBack }) {
               <div><label className="text-xs font-bold text-slate-500 uppercase">Committente</label><input value={editData.client} onChange={e => setEditData({...editData, client: e.target.value})} className="w-full px-3 py-2 rounded-lg border border-slate-300 outline-none" /></div>
             </div>
             <div className="mb-4"><label className="text-xs font-bold text-slate-500 uppercase">Descrizione</label><textarea value={editData.description} onChange={e => setEditData({...editData, description: e.target.value})} className="w-full px-3 py-2 rounded-lg border border-slate-300 outline-none" rows="2" /></div>
-            <div className="flex justify-end gap-2"><button onClick={() => setIsEditing(false)} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg text-sm font-medium">Annulla</button><button onClick={handleUpdateTask} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 flex items-center gap-2"><Save className="w-4 h-4" /> Salva</button></div>
+            <div className="flex justify-end gap-2"><button onClick={() => setIsEditing(false)} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg text-sm font-medium">Annulla</button><button onClick={handleUpdateTask} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 flex items-center gap-2"><Save className="w-4 h-4" /> Salva Modifiche</button></div>
           </div>
         )}
 
@@ -989,6 +1059,8 @@ function SiteOverview({ task, isMaster }) {
   const [aiAnalysis, setAiAnalysis] = useState('');
   const [loadingAi, setLoadingAi] = useState(false);
 
+  const nextPhase = task.schedule?.find(p => new Date(p.end) >= new Date());
+
   const handleAiAnalysis = async () => {
     setLoadingAi(true);
     const prompt = `Analizza questo cantiere edile. Nome: ${task.title}. Committente: ${task.client}. Descrizione: ${task.description}. Stato: ${task.completed ? 'Completato' : 'In Corso'}. Scrivi un breve riassunto professionale sullo stato e suggerisci 2 priorità tipiche.`;
@@ -1010,17 +1082,23 @@ function SiteOverview({ task, isMaster }) {
        )}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="bg-blue-50 p-6 rounded-xl border border-blue-100 text-blue-800"><h3 className="font-semibold text-lg flex items-center gap-2"><Wrench className="w-5 h-5" /> Stato Lavori</h3><p className="text-sm mt-2 opacity-80">Sezione pronta per visualizzare lo stato di avanzamento e le scadenze prossime.</p></div>
-        <div className="bg-indigo-50 p-6 rounded-xl border border-indigo-100 text-indigo-800"><h3 className="font-semibold text-lg flex items-center gap-2"><User className="w-5 h-5" /> Squadra</h3><p className="text-sm mt-2 opacity-80">{task.assignedTeam ? `${task.assignedTeam.length} dipendenti assegnati` : 'Nessun dipendente assegnato'}</p></div>
+        <div className="bg-indigo-50 p-6 rounded-xl border border-indigo-100 text-indigo-800"><h3 className="font-semibold text-lg flex items-center gap-2"><User className="w-5 h-5" /> Squadra</h3><p className="text-sm mt-2 opacity-80">{task.assignedTeam ? `${task.assignedTeam.length} membri assegnati` : 'Nessun membro assegnato'}</p></div>
+        <div className="bg-orange-50 p-6 rounded-xl border border-orange-100 text-orange-800">
+          <h3 className="font-semibold text-lg flex items-center gap-2"><Timer className="w-5 h-5" /> Prossima Scadenza</h3>
+          <p className="text-sm mt-2 font-medium">{nextPhase ? `${nextPhase.name}: ${new Date(nextPhase.end).toLocaleDateString()}` : 'Nessuna fase in programma'}</p>
+        </div>
       </div>
     </div>
   );
 }
 
-// 2. Foto Cantiere (MODIFICATA: Lightbox + Permessi + Logging)
+// 2. Foto Cantiere (MODIFICATA: Lightbox + Permessi + Logging + AI VISION)
 function SitePhotos({ taskId, user, userData, isAdmin }) {
   const [photos, setPhotos] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [lightboxImg, setLightboxImg] = useState(null); 
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analysisResult, setAnalysisResult] = useState('');
   const fileInputRef = useRef(null);
 
   useEffect(() => {
@@ -1057,12 +1135,49 @@ function SitePhotos({ taskId, user, userData, isAdmin }) {
     try { await deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'photos', photo.id)); } catch(err) {}
   };
 
+  const analyzeImage = async (imgData) => {
+    setAnalyzing(true);
+    setAnalysisResult('');
+    const prompt = "Analizza questa foto di cantiere. Descrivi brevemente lo stato di avanzamento visibile e segnala eventuali problemi di sicurezza evidenti (es. mancanza caschi, disordine). Sii professionale.";
+    const result = await callGeminiAI(prompt, imgData);
+    setAnalysisResult(result);
+    setAnalyzing(false);
+  };
+
   return (
     <div className="space-y-6">
+      {/* Lightbox con Analisi AI */}
       {lightboxImg && (
-        <div className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4 animate-in fade-in" onClick={() => setLightboxImg(null)}>
-          <button className="absolute top-4 right-4 text-white hover:text-slate-300"><X className="w-8 h-8"/></button>
-          <img src={lightboxImg} className="max-w-full max-h-full rounded shadow-2xl object-contain" alt="Fullscreen" />
+        <div className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4 animate-in fade-in">
+          <button className="absolute top-4 right-4 text-white hover:text-slate-300 z-50" onClick={() => { setLightboxImg(null); setAnalysisResult(''); }}><X className="w-8 h-8"/></button>
+          
+          <div className="flex flex-col items-center max-w-4xl w-full">
+             <img src={lightboxImg} className="max-h-[70vh] rounded shadow-2xl object-contain mb-4" alt="Fullscreen" />
+             
+             <div className="bg-white/10 backdrop-blur-md p-4 rounded-xl text-white w-full max-w-lg border border-white/20">
+                {!analysisResult && !analyzing && (
+                  <button 
+                    onClick={() => analyzeImage(lightboxImg)}
+                    className="w-full bg-gradient-to-r from-violet-600 to-indigo-600 py-2 rounded-lg font-bold text-sm flex items-center justify-center gap-2 hover:opacity-90 transition-opacity"
+                  >
+                    <Sparkles className="w-4 h-4" /> Analizza con AI
+                  </button>
+                )}
+                
+                {analyzing && (
+                  <div className="flex items-center justify-center gap-2 py-2 text-sm">
+                    <Loader2 className="w-4 h-4 animate-spin" /> Analisi in corso...
+                  </div>
+                )}
+
+                {analysisResult && (
+                  <div className="mt-2 text-sm text-slate-100 max-h-40 overflow-y-auto">
+                    <h4 className="font-bold text-violet-300 mb-1 flex items-center gap-2"><Bot className="w-4 h-4"/> Analisi Gemini:</h4>
+                    {analysisResult}
+                  </div>
+                )}
+             </div>
+          </div>
         </div>
       )}
 
@@ -1087,7 +1202,6 @@ function SitePhotos({ taskId, user, userData, isAdmin }) {
   );
 }
 
-// 3. Contabilità Cantiere (Solo Master)
 function SiteAccounting({ taskId, user, isAdmin }) {
   const [materialsTotal, setMaterialsTotal] = useState(0);
   const [expenses, setExpenses] = useState([]);
@@ -1123,7 +1237,7 @@ function SiteAccounting({ taskId, user, isAdmin }) {
 
   const addExpense = async (e) => {
     e.preventDefault();
-    if(!isAdmin) { alert("Solo Master Full possono aggiungere spese manuali."); return; } // Limitazione per Master Limitati
+    if(!isAdmin) { alert("Solo Master Full possono aggiungere spese manuali."); return; } 
     if(!newExpense.desc || !newExpense.amount) return;
     try {
       await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'expenses'), {
@@ -1255,6 +1369,13 @@ function SiteTeam({ task, isAdmin }) {
 
   useEffect(() => { setAssigned(task.assignedTeam || []); }, [task.assignedTeam]);
 
+  const allStaff = Object.values(USERS_CONFIG); 
+
+  const getRoleByName = (name) => {
+    const user = allStaff.find(u => u.name === name);
+    return user ? user.role : 'Dipendente';
+  };
+
   const handleAssign = async () => {
     if(!selectedUser || !isAdmin) return;
     try { await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'tasks', task.id), { assignedTeam: arrayUnion(selectedUser) }); setSelectedUser(''); } catch(err) { alert(err.message); }
@@ -1266,24 +1387,40 @@ function SiteTeam({ task, isAdmin }) {
     try { await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'tasks', task.id), { assignedTeam: arrayRemove(name) }); } catch(err) { alert(err.message); }
   };
 
-  const allEmployees = Object.values(USERS_CONFIG).filter(u => u.role === 'Dipendente');
-
   return (
     <div className="space-y-6">
       {isAdmin && (
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex gap-2">
-          <select value={selectedUser} onChange={e=>setSelectedUser(e.target.value)} className="flex-1 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none"><option value="">-- Seleziona Dipendente --</option>{allEmployees.map(u => (<option key={u.name} value={u.name} disabled={assigned.includes(u.name)}>{u.name}</option>))}</select>
+          <select value={selectedUser} onChange={e=>setSelectedUser(e.target.value)} className="flex-1 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none">
+            <option value="">-- Seleziona Personale --</option>
+            {allStaff.map(u => (
+              <option key={u.name} value={u.name} disabled={assigned.includes(u.name)}>
+                {u.name} {u.role === 'Master' ? '(Master)' : ''}
+              </option>
+            ))}
+          </select>
           <button onClick={handleAssign} disabled={!selectedUser} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700">Assegna</button>
         </div>
       )}
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-        {assigned.length === 0 ? <p className="col-span-full text-center py-8 text-slate-400 text-sm">Nessun dipendente assegnato a questo cantiere.</p> :
-          assigned.map(name => (
+        {assigned.length === 0 ? <p className="col-span-full text-center py-8 text-slate-400 text-sm">Nessun membro del team assegnato.</p> :
+          assigned.map(name => {
+            const role = getRoleByName(name);
+            const isMasterRole = role === 'Master';
+            return (
             <div key={name} className="flex items-center justify-between p-3 bg-white border border-slate-200 rounded-xl">
-              <div className="flex items-center gap-3"><div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-xs">{name.charAt(0)}</div><span className="text-sm font-medium text-slate-700">{name}</span></div>
+              <div className="flex items-center gap-3">
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs ${isMasterRole ? 'bg-purple-100 text-purple-700' : 'bg-indigo-100 text-indigo-700'}`}>
+                  {name.charAt(0)}
+                </div>
+                <div>
+                  <span className="text-sm font-medium text-slate-700 block">{name}</span>
+                  <span className="text-[10px] text-slate-400 uppercase">{role}</span>
+                </div>
+              </div>
               {isAdmin && <button onClick={() => handleRemove(name)} className="text-slate-300 hover:text-red-500"><X className="w-4 h-4" /></button>}
             </div>
-          ))
+          )})
         }
       </div>
     </div>
@@ -1345,339 +1482,6 @@ function SiteSchedule({ task, isAdmin }) {
             );
           })
         }
-      </div>
-    </div>
-  );
-}
-
-// Material Requests View (Aggiornata per notifiche)
-function MaterialRequestsView({ taskId, user, userData, isAdmin, task }) {
-  const [requests, setRequests] = useState([]);
-  const [newItem, setNewItem] = useState('');
-  const [quantity, setQuantity] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [aiSuggestions, setAiSuggestions] = useState(null);
-  const [loadingAi, setLoadingAi] = useState(false);
-
-  useEffect(() => {
-    const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'material_requests'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const all = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setRequests(all.filter(r => r.taskId === taskId).sort((a,b) => b.createdAt?.seconds - a.createdAt?.seconds));
-      setLoading(false);
-    });
-    return () => unsubscribe();
-  }, [taskId]);
-
-  const handleAddRequest = async (e) => {
-    e.preventDefault();
-    if (!newItem.trim()) return;
-    try {
-      await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'material_requests'), {
-        taskId, item: newItem, quantity: quantity, userId: user.uid, userName: userData?.name || 'Dipendente', status: 'pending', createdAt: serverTimestamp()
-      });
-      await logOperation(userData, "Richiesta Materiale", `${newItem} per cantiere ${task.title}`);
-      await sendNotification('all_masters', 'Richiesta Materiale', `${userData?.name} ha richiesto ${newItem} per ${task.title}.`);
-      setNewItem(''); setQuantity('');
-    } catch (err) { alert(err.message); }
-  };
-
-  const handleAiSuggest = async () => {
-    setLoadingAi(true);
-    const prompt = `Sono in un cantiere edile per: "${task?.title}". Descrizione: "${task?.description || ''}". Suggerisci 5 materiali o attrezzature essenziali che potrei aver dimenticato di ordinare. Rispondi solo con una lista separata da virgole.`;
-    const result = await callGeminiAI(prompt);
-    setAiSuggestions(result.split(','));
-    setLoadingAi(false);
-  };
-
-  const toggleStatus = async (req) => {
-    if (!isAdmin) return; // Solo Admin cambia stato
-    const newStatus = req.status === 'ordered' ? 'pending' : 'ordered';
-    try { await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'material_requests', req.id), { status: newStatus }); } catch(err) { console.error(err); }
-  };
-
-  const deleteRequest = async (id) => {
-    if (!isAdmin && !window.confirm("Cancellare richiesta?")) return;
-    try { await deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'material_requests', id)); } catch(err) {}
-  };
-
-  return (
-    <div className="space-y-6">
-      <div className="bg-orange-50 border border-orange-100 p-4 rounded-xl mb-4 flex justify-between items-center">
-        <div><h3 className="font-bold text-orange-800 text-sm mb-1 flex items-center gap-2"><ShoppingCart className="w-4 h-4"/> Richieste Fornitura</h3><p className="text-xs text-orange-700">Richiedi materiale mancante per il cantiere.</p></div>
-        {!aiSuggestions && (<button onClick={handleAiSuggest} disabled={loadingAi} className="text-xs bg-white text-orange-600 border border-orange-200 px-3 py-2 rounded-lg font-medium hover:bg-orange-100 flex items-center gap-1 shadow-sm">{loadingAi ? <Loader2 className="w-3 h-3 animate-spin"/> : <Sparkles className="w-3 h-3 text-yellow-500"/>} Suggerisci Materiali AI</button>)}
-      </div>
-      {aiSuggestions && (
-        <div className="bg-yellow-50 p-4 rounded-xl border border-yellow-200 mb-4 animate-in slide-in-from-top-2">
-           <div className="flex justify-between items-center mb-2"><h4 className="text-xs font-bold text-yellow-800 flex items-center gap-1"><Bot className="w-3 h-3"/> Suggerimenti AI:</h4><button onClick={() => setAiSuggestions(null)} className="text-yellow-600 hover:text-yellow-800"><X className="w-3 h-3"/></button></div>
-           <div className="flex flex-wrap gap-2">{aiSuggestions.map((sugg, idx) => (<button key={idx} onClick={() => setNewItem(sugg.trim())} className="text-xs bg-white border border-yellow-300 text-yellow-800 px-2 py-1 rounded-md hover:bg-yellow-100 transition-colors">+ {sugg.trim()}</button>))}</div>
-        </div>
-      )}
-      <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
-        <form onSubmit={handleAddRequest} className="flex gap-2"><input type="text" placeholder="Cosa serve?" className="flex-1 px-3 py-2 bg-slate-50 border rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500" value={newItem} onChange={e => setNewItem(e.target.value)} /><input type="text" placeholder="Q.tà" className="w-20 px-3 py-2 bg-slate-50 border rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500" value={quantity} onChange={e => setQuantity(e.target.value)} /><button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded-lg font-medium text-sm hover:bg-blue-700">Richiedi</button></form>
-      </div>
-      <div className="space-y-2">
-        {loading ? <Loader2 className="w-6 h-6 animate-spin mx-auto text-blue-600 my-4" /> : requests.length === 0 ? <p className="text-center text-slate-400 text-sm py-8">Nessuna richiesta di materiale attiva.</p> :
-          requests.map(req => (
-            <div key={req.id} className={`flex items-center justify-between p-3 rounded-lg border transition-colors ${req.status === 'ordered' ? 'bg-green-50 border-green-100 opacity-70' : 'bg-white border-slate-200'}`}>
-              <div className="flex items-center gap-3"><button onClick={() => toggleStatus(req)} disabled={!isAdmin} className={`w-5 h-5 rounded border flex items-center justify-center ${req.status === 'ordered' ? 'bg-green-500 border-green-500 text-white' : 'border-slate-300 text-transparent'} ${!isAdmin ? 'cursor-default' : 'cursor-pointer'}`}><CheckSquare className="w-3.5 h-3.5" /></button><div><p className={`font-medium text-sm ${req.status === 'ordered' ? 'line-through text-slate-500' : 'text-slate-800'}`}>{req.item} <span className="text-slate-500 font-normal">({req.quantity})</span></p><p className="text-[10px] text-slate-400">Richiesto da: {req.userName} • {req.createdAt ? new Date(req.createdAt.seconds * 1000).toLocaleDateString() : ''}</p></div></div>
-              {(isAdmin || req.userId === user.uid) && <button onClick={() => deleteRequest(req.id)} className="text-slate-300 hover:text-red-500 p-1"><Trash2 className="w-4 h-4" /></button>}
-            </div>
-          ))
-        }
-      </div>
-    </div>
-  );
-}
-
-function TasksView({ user, userData, isMaster, isAdmin, onSelectTask }) {
-  const [tasks, setTasks] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [title, setTitle] = useState('');
-  const [client, setClient] = useState('');
-  const [description, setDescription] = useState('');
-  const [isFormOpen, setIsFormOpen] = useState(false);
-
-  useEffect(() => {
-    const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'tasks'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      data.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
-      setTasks(data);
-      setLoading(false);
-    });
-    return () => unsubscribe();
-  }, []);
-
-  const handleAddTask = async (e) => {
-    e.preventDefault();
-    if (!isAdmin) { alert("Solo gli Admin possono creare cantieri."); return; }
-    if (!title.trim() || !client.trim()) return;
-    try {
-      await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'tasks'), {
-        title, client, description, completed: false, createdAt: serverTimestamp(), userId: user.uid, authorName: userData?.name
-      });
-      await logOperation(userData, "Creazione Cantiere", `Nuovo cantiere: ${title}`);
-      setTitle(''); setClient(''); setDescription(''); setIsFormOpen(false);
-    } catch (err) { alert(err.message); }
-  };
-
-  const toggleTask = async (task, e) => {
-    e.stopPropagation();
-    try { await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'tasks', task.id), { completed: !task.completed }); } catch (err) {}
-  };
-
-  const deleteTask = async (taskId, e) => {
-    e.stopPropagation();
-    if (!isAdmin) { alert("Solo gli Admin possono eliminare."); return; }
-    if (!window.confirm("Eliminare definitivamente?")) return;
-    try { await deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'tasks', taskId)); } catch (err) {}
-  };
-
-  return (
-    <div className="space-y-6">
-      {isAdmin && !isFormOpen && (
-        <button onClick={() => setIsFormOpen(true)} className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-medium shadow-sm flex items-center justify-center gap-2 transition-all">
-          <Plus className="w-5 h-5" /> Registra Nuova Attività
-        </button>
-      )}
-
-      {isFormOpen && (
-        <div className="bg-white p-6 rounded-2xl shadow-lg border border-blue-100 animate-in fade-in slide-in-from-top-4">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="font-semibold text-slate-800 flex items-center gap-2"><ClipboardList className="w-5 h-5 text-blue-600" /> Dettagli Attività</h3>
-            <button onClick={() => setIsFormOpen(false)} className="text-slate-400 hover:text-slate-600 text-sm">Annulla</button>
-          </div>
-          <form onSubmit={handleAddTask} className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <input required type="text" value={title} onChange={e => setTitle(e.target.value)} className="w-full px-3 py-2.5 bg-slate-50 border rounded-lg" placeholder="Cantiere / Attività" />
-              <input required type="text" value={client} onChange={e => setClient(e.target.value)} className="w-full px-3 py-2.5 bg-slate-50 border rounded-lg" placeholder="Committente" />
-            </div>
-            <textarea value={description} onChange={e => setDescription(e.target.value)} className="w-full px-3 py-2.5 bg-slate-50 border rounded-lg" placeholder="Descrizione..." />
-            <div className="flex justify-end"><button type="submit" className="bg-blue-600 text-white px-8 py-2.5 rounded-lg font-medium">Salva</button></div>
-          </form>
-        </div>
-      )}
-
-      <div className="grid gap-4">
-        {loading ? <div className="text-center py-10"><Loader2 className="w-8 h-8 text-blue-600 animate-spin mx-auto" /></div> : tasks.length === 0 ? 
-          <div className="text-center py-16 bg-white rounded-2xl border border-dashed border-slate-300"><ClipboardList className="w-12 h-12 text-slate-300 mx-auto mb-3" /><h3 className="text-slate-900 font-medium">Nessuna attività registrata</h3></div> : 
-          tasks.map((task) => (
-            <div key={task.id} onClick={() => onSelectTask(task)} className={`group cursor-pointer relative bg-white rounded-xl border p-5 transition-all hover:ring-2 hover:ring-blue-500 hover:border-transparent hover:shadow-lg ${task.completed ? 'border-slate-100 bg-slate-50 opacity-75' : 'border-slate-200'}`}>
-              <div className="flex items-start gap-4">
-                <button onClick={(e) => toggleTask(task, e)} className={`mt-1 shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${task.completed ? 'bg-green-500 border-green-500 text-white' : 'border-slate-300 text-transparent hover:border-green-500'}`}><CheckCircle className="w-3.5 h-3.5" strokeWidth={3} /></button>
-                <div className="flex-1">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <h4 className={`text-lg font-bold ${task.completed ? 'text-slate-500 line-through' : 'text-slate-800'}`}>{task.title}</h4>
-                      <div className="flex items-center gap-2 text-sm text-slate-600 mt-1 font-medium"><User className="w-3.5 h-3.5" /> Committente: {task.client}</div>
-                    </div>
-                    {isAdmin && <button onClick={(e) => deleteTask(task.id, e)} className="p-2 text-slate-300 hover:text-red-500 rounded-lg"><Trash2 className="w-4 h-4" /></button>}
-                  </div>
-                  <div className="mt-3 flex items-center gap-3 text-xs text-slate-400 border-t border-slate-100 pt-3">
-                    <span className="flex items-center gap-1">Clicca per gestire materiali e foto</span>
-                    <span className="ml-auto text-blue-600 font-semibold group-hover:underline">Apri Cantiere →</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          ))
-        }
-      </div>
-    </div>
-  );
-}
-
-function MaterialsView({ user, userData, isMaster, isAdmin, context = 'warehouse', taskId = null }) {
-  const [materials, setMaterials] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [isFormOpen, setIsFormOpen] = useState(false);
-  const [formData, setFormData] = useState({
-    name: '', supplier: '', type: 'Elettrico', quantity: '', unit: 'pz', cost: '', code: ''
-  });
-
-  useEffect(() => {
-    const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'materials'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      const filtered = context === 'site' ? data.filter(item => item.taskId === taskId) : data;
-      filtered.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
-      setMaterials(filtered);
-      setLoading(false);
-    });
-    return () => unsubscribe();
-  }, [context, taskId]);
-
-  const handleChange = (e) => setFormData({ ...formData, [e.target.name]: e.target.value });
-
-  const handleAddMaterial = async (e) => {
-    e.preventDefault();
-    try {
-      await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'materials'), {
-        ...formData,
-        taskId: context === 'site' ? taskId : null,
-        createdAt: serverTimestamp(),
-        userId: user.uid,
-        authorName: userData?.name
-      });
-      setFormData({ name: '', supplier: '', type: 'Elettrico', quantity: '', unit: 'pz', cost: '', code: '' });
-      setIsFormOpen(false);
-    } catch (err) { alert(err.message); }
-  };
-
-  const deleteMaterial = async (id) => {
-    if (!isAdmin) { alert("Solo i Master possono eliminare."); return; }
-    if (!window.confirm("Eliminare materiale?")) return;
-    try { await deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'materials', id)); } catch (err) {}
-  };
-
-  return (
-    <div className="space-y-6">
-      {!isFormOpen && (
-        <button onClick={() => setIsFormOpen(true)} className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-medium shadow-sm flex items-center justify-center gap-2 transition-all">
-          <Plus className="w-5 h-5" /> 
-          {context === 'site' ? 'Carica Materiale per Cantiere' : 'Carica Nuovo Materiale'}
-        </button>
-      )}
-
-      {isFormOpen && (
-        <div className="bg-white p-6 rounded-2xl shadow-lg border border-blue-100 animate-in fade-in slide-in-from-top-4">
-          <div className="flex justify-between items-center mb-4"><h3 className="font-semibold text-slate-800 flex items-center gap-2"><Package className="w-5 h-5 text-blue-600" /> Scheda Materiale</h3><button onClick={() => setIsFormOpen(false)} className="text-slate-400 hover:text-slate-600 text-sm">Annulla</button></div>
-          <form onSubmit={handleAddMaterial} className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="col-span-1 md:col-span-2 space-y-1"><label className="text-xs font-bold text-slate-500 uppercase">Descrizione Articolo</label><input required name="name" value={formData.name} onChange={handleChange} className="w-full px-3 py-2.5 bg-slate-50 border rounded-lg" /></div>
-              <div className="space-y-1"><label className="text-xs font-bold text-slate-500 uppercase">Codice</label><input name="code" value={formData.code} onChange={handleChange} className="w-full px-3 py-2.5 bg-slate-50 border rounded-lg" /></div>
-            </div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-               <div className="space-y-1"><label className="text-xs font-bold text-slate-500 uppercase">Fornitore</label><input required name="supplier" value={formData.supplier} onChange={handleChange} className="w-full px-3 py-2.5 bg-slate-50 border rounded-lg" /></div>
-               <div className="space-y-1"><label className="text-xs font-bold text-slate-500 uppercase">Tipo</label><select name="type" value={formData.type} onChange={handleChange} className="w-full px-3 py-2.5 bg-slate-50 border rounded-lg"><option>Elettrico</option><option>Idraulico</option><option>Edile</option><option>Ferramenta</option><option>Altro</option></select></div>
-               <div className="space-y-1"><label className="text-xs font-bold text-slate-500 uppercase">Q.tà</label><div className="flex"><input required type="number" name="quantity" value={formData.quantity} onChange={handleChange} className="w-full px-3 py-2.5 bg-slate-50 border rounded-l-lg" /><select name="unit" value={formData.unit} onChange={handleChange} className="bg-slate-100 border rounded-r-lg px-2"><option value="pz">pz</option><option value="m">m</option><option value="kg">kg</option><option value="cf">cf</option></select></div></div>
-               <div className="space-y-1"><label className="text-xs font-bold text-slate-500 uppercase">Costo (€)</label><input type="number" step="0.01" name="cost" value={formData.cost} onChange={handleChange} className="w-full px-3 py-2.5 bg-slate-50 border rounded-lg" /></div>
-            </div>
-            <div className="pt-2 flex justify-end"><button type="submit" className="bg-blue-600 text-white px-8 py-2.5 rounded-lg font-medium">Salva</button></div>
-          </form>
-        </div>
-      )}
-
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-slate-50 text-slate-500 border-b border-slate-200 uppercase text-xs font-bold">
-              <tr>
-                <th className="px-4 py-3">Articolo</th>
-                <th className="px-4 py-3">Fornitore</th>
-                <th className="px-4 py-3 text-center">Q.tà</th>
-                <th className="px-4 py-3 text-right">Totale</th>
-                {isAdmin && <th className="px-4 py-3 text-right">Azioni</th>}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {loading ? <tr><td colSpan="5" className="p-8 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-blue-600" /></td></tr> : materials.length === 0 ? <tr><td colSpan="5" className="p-8 text-center text-slate-400">Nessun materiale registrato</td></tr> : 
-                materials.map((item) => (
-                  <tr key={item.id} className="hover:bg-slate-50">
-                    <td className="px-4 py-3 font-medium text-slate-800">{item.name} {item.code && <span className="text-xs text-slate-400 block">{item.code}</span>}</td>
-                    <td className="px-4 py-3 text-slate-600">{item.supplier}</td>
-                    <td className="px-4 py-3 text-center">{item.quantity} {item.unit}</td>
-                    <td className="px-4 py-3 text-right font-bold text-slate-800">€ {(parseFloat(item.quantity||0)*parseFloat(item.cost||0)).toFixed(2)}</td>
-                    {isAdmin && <td className="px-4 py-3 text-right"><button onClick={() => deleteMaterial(item.id)} className="text-slate-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button></td>}
-                  </tr>
-                ))
-              }
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function AuthScreen() {
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [imgError, setImgError] = useState(false); 
-
-  const handleAuth = async (e) => {
-    e.preventDefault();
-    setError('');
-    setIsSubmitting(true);
-    const cleanUsername = username.trim().toLowerCase();
-    const email = `${cleanUsername}@impresadaria.app`;
-
-    if (password.length < 6) { setError("Password troppo corta (min. 6 caratteri)."); setIsSubmitting(false); return; }
-
-    try { await signInWithEmailAndPassword(auth, email, password); } 
-    catch (loginError) {
-      if (loginError.code === 'auth/user-not-found' || loginError.code === 'auth/invalid-credential') {
-        try { await createUserWithEmailAndPassword(auth, email, password); } catch (regError) { setError("Errore creazione: " + regError.message); }
-      } else if (loginError.code === 'auth/wrong-password') { setError("Password errata."); } else { setError("Errore: " + loginError.message); }
-    } finally { setIsSubmitting(false); }
-  };
-
-  return (
-    <div className="min-h-screen flex items-center justify-center p-4 bg-slate-100">
-      <div className="max-w-md w-full bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
-        <div className="bg-blue-800 p-10 text-center relative overflow-hidden">
-          <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-blue-700 to-indigo-900 opacity-95"></div>
-          <div className="relative z-10 flex flex-col items-center">
-            <div className="w-24 h-24 bg-white rounded-2xl flex items-center justify-center mb-5 shadow-2xl transform hover:scale-105 transition-transform duration-300 overflow-hidden p-2">
-              {!imgError ? <img src="logo.jpg" alt="Logo" className="w-full h-full object-contain" onError={() => setImgError(true)} /> : <Building2 className="w-12 h-12 text-blue-800" />}
-            </div>
-            <h1 className="text-3xl font-black text-white tracking-tight mb-1">ImpresadariAPP</h1>
-            <div className="h-1 w-20 bg-blue-400 rounded-full mb-3"></div>
-            <p className="text-blue-100 text-sm font-medium tracking-wide">L'app ufficiale di<br/><span className="font-bold text-white text-base">Impresa d'Aria Srl</span></p>
-          </div>
-        </div>
-        <div className="p-8">
-          {error && <div className="mb-6 p-4 bg-red-50 border-l-4 border-red-500 rounded-r-lg text-red-700 text-sm font-medium">{error}</div>}
-          <form onSubmit={handleAuth} className="space-y-5">
-            <div className="space-y-1.5"><label className="text-xs font-bold text-slate-500 uppercase tracking-wider ml-1">Username</label><div className="relative group"><User className="w-5 h-5 text-slate-400 absolute left-3 top-3.5 group-focus-within:text-blue-600 transition-colors" /><input type="text" required value={username} onChange={(e) => setUsername(e.target.value)} className="w-full pl-10 pr-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium text-slate-700" placeholder="es. a.cusimano" autoCapitalize="none" /></div></div>
-            <div className="space-y-1.5"><label className="text-xs font-bold text-slate-500 uppercase tracking-wider ml-1">Password</label><div className="relative group"><Lock className="w-5 h-5 text-slate-400 absolute left-3 top-3.5 group-focus-within:text-blue-600 transition-colors" /><input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} className="w-full pl-10 pr-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium text-slate-700" placeholder="••••••" /></div></div>
-            <button type="submit" disabled={isSubmitting} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-xl transition-all shadow-lg shadow-blue-500/30 flex items-center justify-center gap-2 mt-6">{isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Accedi'}</button>
-          </form>
-          <div className="mt-8 text-center border-t border-slate-100 pt-6"><p className="text-xs text-slate-400">© 2024 Impresa d'Aria Srl. Tutti i diritti riservati.</p></div>
-        </div>
       </div>
     </div>
   );
