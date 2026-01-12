@@ -140,12 +140,12 @@ function LoadingScreen() {
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50 text-slate-500">
       <Loader2 className="w-10 h-10 animate-spin text-blue-600 mb-4" />
-      <p className="font-medium">Caricamento ImpresadariAPP...</p>
+      <p className="font-medium">Sincronizzazione ImpresadariAPP...</p>
     </div>
   );
 }
 
-// --- COMPONENTI SEZIONI CANTIERE ---
+// --- SEZIONI DETTAGLIO CANTIERE ---
 
 function SiteOverview({ task }) {
   const nextPhase = task.schedule?.find(p => new Date(p.end) >= new Date());
@@ -474,7 +474,6 @@ function TasksView({ userData, isAdmin, onSelectTask }) {
     await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'tasks'), { ...newTask, completed: false, createdAt: serverTimestamp(), authorName: userData.name });
     setIsFormOpen(false);
     setNewTask({title:'', client:'', description:''});
-    await logOperation(userData, "Crea Cantiere", newTask.title);
   };
 
   return (
@@ -498,7 +497,7 @@ function TasksView({ userData, isAdmin, onSelectTask }) {
                <h4 className="font-black text-lg text-slate-800 truncate tracking-tighter uppercase">{t.title}</h4>
                <p className="text-[10px] text-slate-400 uppercase font-black tracking-widest mt-1">{t.client}</p>
             </div>
-            <ArrowLeft className="rotate-180 text-slate-200 group-hover:text-blue-600 transition-colors" size={24}/>
+            <ArrowLeft className="rotate-180 text-slate-200 group-hover:text-blue-600" size={24}/>
           </div>
         ))}
       </div>
@@ -522,7 +521,6 @@ function DailyReportsView({ userData }) {
     const sign = canvasRef.current?.toDataURL();
     const taskName = tasks.find(t=>t.id===form.taskId)?.title || 'Cantiere';
     await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'daily_reports'), { ...form, taskTitle: taskName, userName: userData.name, sign, createdAt: serverTimestamp() });
-    await logOperation(userData, "Invia Rapportino", taskName);
     setForm({ taskId: '', hours: '', desc: '' });
     if(canvasRef.current) canvasRef.current.getContext('2d').clearRect(0,0,300,100);
   };
@@ -555,17 +553,91 @@ function DailyReportsView({ userData }) {
   );
 }
 
-function MaterialsView() {
+function VehiclesView({ userData, isAdmin, isMaster }) {
+  const [vehicles, setVehicles] = useState([]);
+  const [newVehicle, setNewVehicle] = useState({ name: '', plate: '', type: 'Furgone', insuranceDate: '', taxDate: '', inspectionDate: '' });
+  const allStaff = Object.values(USERS_CONFIG);
+
+  useEffect(() => {
+    return onSnapshot(collection(db, 'artifacts', APP_ID, 'public', 'data', 'vehicles'), s => setVehicles(s.docs.map(d=>({id:d.id, ...d.data()}))));
+  }, []);
+
+  const add = async (e) => {
+    e.preventDefault();
+    if(!isAdmin) return;
+    await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'vehicles'), { ...newVehicle, assignedTo: 'Libero', createdAt: serverTimestamp() });
+    setNewVehicle({ name: '', plate: '', type: 'Furgone', insuranceDate: '', taxDate: '', inspectionDate: '' });
+  };
+
+  const getStatus = (date) => {
+    if(!date) return { label: '-', class: 'text-slate-300' };
+    const diff = (new Date(date) - new Date()) / (1000 * 60 * 60 * 24);
+    if(diff < 0) return { label: 'SCADUTO', class: 'text-red-600 font-black' };
+    if(diff < 30) return { label: `${Math.ceil(diff)} gg`, class: 'text-orange-500 font-bold' };
+    return { label: new Date(date).toLocaleDateString(), class: 'text-slate-600 font-medium' };
+  };
+
+  return (
+    <div className="space-y-6">
+      {isAdmin && (
+        <form onSubmit={add} className="bg-white p-8 rounded-[40px] border shadow-lg space-y-4">
+          <h3 className="text-xl font-black text-slate-800 uppercase tracking-tighter flex items-center gap-3"><Truck size={24} className="text-blue-600"/> Censimento Mezzo</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+             <input placeholder="Modello/Nome" className="bg-slate-50 rounded-2xl p-4 outline-none font-bold text-sm" value={newVehicle.name} onChange={e=>setNewVehicle({...newVehicle, name: e.target.value})} required />
+             <input placeholder="Targa" className="bg-slate-50 rounded-2xl p-4 outline-none font-bold text-sm uppercase" value={newVehicle.plate} onChange={e=>setNewVehicle({...newVehicle, plate: e.target.value})} required />
+             <select className="bg-slate-50 rounded-2xl p-4 outline-none font-bold text-sm" value={newVehicle.type} onChange={e=>setNewVehicle({...newVehicle, type: e.target.value})}><option>Furgone</option><option>Auto</option><option>Attrezzatura</option></select>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+             <div className="flex flex-col"><label className="text-[9px] font-black text-slate-400 uppercase mb-1 px-4 tracking-widest">Assicurazione</label><input type="date" className="bg-slate-50 rounded-2xl p-4 outline-none font-bold text-sm" value={newVehicle.insuranceDate} onChange={e=>setNewVehicle({...newVehicle, insuranceDate: e.target.value})} /></div>
+             <div className="flex flex-col"><label className="text-[9px] font-black text-slate-400 uppercase mb-1 px-4 tracking-widest">Bollo</label><input type="date" className="bg-slate-50 rounded-2xl p-4 outline-none font-bold text-sm" value={newVehicle.taxDate} onChange={e=>setNewVehicle({...newVehicle, taxDate: e.target.value})} /></div>
+             <div className="flex flex-col"><label className="text-[9px] font-black text-slate-400 uppercase mb-1 px-4 tracking-widest">Revisione</label><input type="date" className="bg-slate-50 rounded-2xl p-4 outline-none font-bold text-sm" value={newVehicle.inspectionDate} onChange={e=>setNewVehicle({...newVehicle, inspectionDate: e.target.value})} /></div>
+          </div>
+          <button type="submit" className="w-full bg-blue-600 text-white py-4 rounded-2xl font-black uppercase tracking-widest text-sm shadow-lg">Registra Mezzo</button>
+        </form>
+      )}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {vehicles.map(v => {
+          const ins = getStatus(v.insuranceDate); const bol = getStatus(v.taxDate); const rev = getStatus(v.inspectionDate);
+          return (
+            <div key={v.id} className="bg-white p-6 rounded-[32px] border shadow-sm relative overflow-hidden group">
+              <div className="flex justify-between items-start mb-5">
+                 <div><h4 className="font-black text-lg text-slate-800 leading-tight uppercase">{v.name}</h4><p className="text-[10px] bg-slate-100 px-2 py-0.5 rounded font-black text-slate-500 uppercase mt-1 tracking-widest">{v.plate}</p></div>
+                 <Truck className="text-blue-100 group-hover:text-blue-500 transition-colors" size={32}/>
+              </div>
+              <div className="space-y-2 border-t pt-4">
+                 <div className="flex justify-between text-xs"><span className="text-slate-400 font-bold uppercase tracking-widest">Assic:</span><span className={ins.class}>{ins.label}</span></div>
+                 <div className="flex justify-between text-xs"><span className="text-slate-400 font-bold uppercase tracking-widest">Bollo:</span><span className={bol.class}>{bol.label}</span></div>
+                 <div className="flex justify-between text-xs"><span className="text-slate-400 font-bold uppercase tracking-widest">Revis:</span><span className={rev.class}>{rev.label}</span></div>
+              </div>
+              <div className="mt-5 pt-4 border-t flex flex-col gap-1">
+                 <p className="text-[9px] font-black text-slate-300 uppercase tracking-widest">Assegnato a:</p>
+                 {isAdmin ? (
+                   <select className="bg-slate-50 border-none rounded-lg p-2 text-xs font-bold text-slate-600 outline-none" value={v.assignedTo} onChange={async (e)=>await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'vehicles', v.id), {assignedTo: e.target.value})}>
+                     <option>Libero</option>{allStaff.map(u=><option key={u.name} value={u.name}>{u.name}</option>)}
+                   </select>
+                 ) : <p className="text-sm font-bold text-blue-600">{v.assignedTo}</p>}
+              </div>
+              {isAdmin && <button onClick={async()=>await deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'vehicles', v.id))} className="absolute top-2 right-2 text-slate-100 hover:text-red-400 transition-colors"><Trash2 size={16}/></button>}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  );
+}
+
+function MaterialsView({ context = 'warehouse', taskId = null }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'materials'), orderBy('createdAt', 'desc'), limit(50));
     return onSnapshot(q, s => {
-      setItems(s.docs.map(d=>({id:d.id, ...d.data()})));
+      const all = s.docs.map(d=>({id:d.id, ...d.data()}));
+      setItems(context === 'site' ? all.filter(m=>m.taskId === taskId) : all);
       setLoading(false);
     });
-  }, []);
+  }, [context, taskId]);
 
   return (
     <div className="bg-white rounded-3xl border overflow-hidden shadow-sm">
@@ -585,17 +657,33 @@ function MaterialsView() {
   );
 }
 
+function AuditLogView() {
+  const [logs, setLogs] = useState([]);
+  useEffect(() => {
+    const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'audit_logs'), orderBy('createdAt', 'desc'), limit(30));
+    return onSnapshot(q, s => setLogs(s.docs.map(d=>({id:d.id, ...d.data()}))));
+  }, []);
+  return (
+    <div className="bg-white border rounded-[32px] overflow-hidden shadow-sm">
+      <div className="overflow-x-auto">
+        <table className="w-full text-left">
+          <thead className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b"><tr><th className="p-5">Utente</th><th className="p-5">Operazione</th><th className="p-5">Posizione</th><th className="p-5">Data</th></tr></thead>
+          <tbody className="divide-y divide-slate-100">
+            {logs.map(l=>(<tr key={l.id} className="hover:bg-slate-50 transition-colors">
+              <td className="p-5 text-xs font-bold text-slate-700">{l.userName}</td>
+              <td className="p-5 text-xs text-slate-600">{l.action}</td>
+              <td className="p-5 font-mono text-[9px] text-blue-500 uppercase">{l.location}</td>
+              <td className="p-5 text-xs text-slate-400">{l.createdAt?.seconds ? new Date(l.createdAt.seconds * 1000).toLocaleString() : '-'}</td>
+            </tr>))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 function PersonalAreaView({ userData, isMaster }) {
   const [sub, setSub] = useState('docs');
-  const [logs, setLogs] = useState([]);
-
-  useEffect(() => {
-    if(isMaster) {
-      const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'audit_logs'), orderBy('createdAt', 'desc'), limit(20));
-      return onSnapshot(q, s => setLogs(s.docs.map(d=>({id:d.id, ...d.data()}))));
-    }
-  }, [isMaster]);
-
   return (
     <div className="space-y-6">
        <div className="bg-white p-8 rounded-[40px] border shadow-sm flex flex-col sm:flex-row justify-between items-center gap-6">
@@ -608,29 +696,51 @@ function PersonalAreaView({ userData, isMaster }) {
            {isMaster && <button onClick={()=>setSub('logs')} className={`pb-2 px-4 text-xs font-black uppercase tracking-widest ${sub === 'logs' ? 'border-b-2 border-blue-600 text-blue-600' : 'text-slate-400'}`}>Log</button>}
          </div>
        </div>
-       {sub === 'logs' && isMaster && (
-          <div className="bg-white border rounded-[32px] overflow-hidden shadow-sm">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left">
-                <thead className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b"><tr><th className="p-5">Utente</th><th className="p-5">Operazione</th><th className="p-5">Posizione</th><th className="p-5">Data</th></tr></thead>
-                <tbody className="divide-y divide-slate-100">
-                  {logs.map(l=>(<tr key={l.id} className="hover:bg-slate-50">
-                    <td className="p-5 text-xs font-bold text-slate-700">{l.userName}</td>
-                    <td className="p-5 text-xs text-slate-600">{l.action}</td>
-                    <td className="p-5 font-mono text-[9px] text-blue-500 uppercase">{l.location}</td>
-                    <td className="p-5 text-xs text-slate-400">{l.createdAt?.seconds ? new Date(l.createdAt.seconds * 1000).toLocaleString() : '-'}</td>
-                  </tr>))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-       )}
+       {sub === 'logs' && isMaster && <AuditLogView />}
        {sub === 'docs' && <div className="bg-white p-12 rounded-[40px] border text-center text-slate-300 flex flex-col items-center gap-3"><FileCheck size={48} className="opacity-20"/><p className="text-xs font-black uppercase tracking-widest">Archivio Digitale Protetto</p></div>}
     </div>
   );
 }
 
-// --- COMPONENTI UI AVANZATI (AUTH, DETAIL, DASHBOARD) ---
+function TaskDetailContainer({ task, userData, isMaster, isAdmin, onBack }) {
+  const [active, setActive] = useState('overview');
+  const tabs = [
+    { id: 'overview', label: 'Info', icon: Activity },
+    { id: 'chat', label: 'Chat', icon: MessageSquare },
+    { id: 'team', label: 'Squadra', icon: Users },
+    { id: 'documents', label: 'Documenti', icon: FileCheck },
+    { id: 'schedule', label: 'Crono', icon: CalendarRange },
+    { id: 'materials', label: 'Materiali', icon: Package },
+    { id: 'requests', label: 'Richieste', icon: ShoppingCart },
+    { id: 'photos', label: 'Foto', icon: Camera },
+    ...(isMaster ? [{ id: 'accounting', label: 'Contabilità', icon: Calculator }] : [])
+  ];
+
+  return (
+    <div className="space-y-6 animate-in fade-in duration-300">
+      <button onClick={onBack} className="flex items-center gap-2 text-slate-400 text-sm hover:text-blue-600 transition-colors font-bold uppercase tracking-widest"><ArrowLeft size={16}/> Indietro</button>
+      <div className="bg-white p-6 rounded-3xl border shadow-sm">
+        <h2 className="text-2xl font-black text-slate-800 tracking-tighter uppercase">{task.title}</h2>
+        <div className="flex gap-2 mt-6 border-b overflow-x-auto scrollbar-hide">
+          {tabs.map(t => (
+            <button key={t.id} onClick={()=>setActive(t.id)} className={`px-4 py-3 text-[10px] font-black uppercase tracking-widest border-b-2 transition-all whitespace-nowrap flex items-center gap-2 ${active === t.id ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400'}`}><t.icon size={14}/>{t.label}</button>
+          ))}
+        </div>
+      </div>
+      <div className="mt-6">
+        {active === 'overview' && <SiteOverview task={task} isMaster={isMaster} />}
+        {active === 'chat' && <SiteChat taskId={task.id} userData={userData} />}
+        {active === 'team' && <SiteTeam task={task} isAdmin={isAdmin} />}
+        {active === 'documents' && <SiteDocuments taskId={task.id} isAdmin={isAdmin} userData={userData} />}
+        {active === 'schedule' && <SiteSchedule task={task} isAdmin={isAdmin} />}
+        {active === 'materials' && <MaterialsView context="site" taskId={task.id} />}
+        {active === 'requests' && <MaterialRequestsView taskId={task.id} userData={userData} />}
+        {active === 'photos' && <SitePhotos taskId={task.id} userData={userData} isAdmin={isAdmin} />}
+        {active === 'accounting' && isMaster && <SiteAccounting taskId={task.id} />}
+      </div>
+    </div>
+  );
+}
 
 function AuthScreen() {
   const [username, setUsername] = useState('');
@@ -674,46 +784,6 @@ function AuthScreen() {
              {isSubmitting ? <Loader2 className="animate-spin"/> : "Accedi al Portale"}
           </button>
         </form>
-      </div>
-    </div>
-  );
-}
-
-function TaskDetailContainer({ task, userData, isMaster, isAdmin, onBack }) {
-  const [active, setActive] = useState('overview');
-  const tabs = [
-    { id: 'overview', label: 'Info', icon: Activity },
-    { id: 'chat', label: 'Chat', icon: MessageSquare },
-    { id: 'team', label: 'Squadra', icon: Users },
-    { id: 'documents', label: 'Documenti', icon: FileCheck },
-    { id: 'schedule', label: 'Crono', icon: CalendarRange },
-    { id: 'materials', label: 'Materiali', icon: Package },
-    { id: 'requests', label: 'Richieste', icon: ShoppingCart },
-    { id: 'photos', label: 'Foto', icon: Camera },
-    ...(isMaster ? [{ id: 'accounting', label: 'Contabilità', icon: Calculator }] : [])
-  ];
-
-  return (
-    <div className="space-y-6 animate-in fade-in duration-300">
-      <button onClick={onBack} className="flex items-center gap-2 text-slate-400 text-sm hover:text-blue-600 transition-colors font-bold uppercase tracking-widest"><ArrowLeft size={16}/> Indietro</button>
-      <div className="bg-white p-6 rounded-3xl border shadow-sm">
-        <h2 className="text-2xl font-black text-slate-800 tracking-tighter uppercase">{task.title}</h2>
-        <div className="flex gap-2 mt-6 border-b overflow-x-auto scrollbar-hide">
-          {tabs.map(t => (
-            <button key={t.id} onClick={()=>setActive(t.id)} className={`px-4 py-3 text-[10px] font-black uppercase tracking-widest border-b-2 transition-all whitespace-nowrap flex items-center gap-2 ${active === t.id ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400'}`}><t.icon size={14}/>{t.label}</button>
-          ))}
-        </div>
-      </div>
-      <div className="mt-6">
-        {active === 'overview' && <SiteOverview task={task} isMaster={isMaster} />}
-        {active === 'chat' && <SiteChat taskId={task.id} userData={userData} />}
-        {active === 'team' && <SiteTeam task={task} isAdmin={isAdmin} />}
-        {active === 'documents' && <SiteDocuments taskId={task.id} isAdmin={isAdmin} userData={userData} />}
-        {active === 'schedule' && <SiteSchedule task={task} isAdmin={isAdmin} />}
-        {active === 'materials' && <MaterialsView context="site" taskId={task.id} />}
-        {active === 'requests' && <MaterialRequestsView taskId={task.id} userData={userData} />}
-        {active === 'photos' && <SitePhotos taskId={task.id} userData={userData} isAdmin={isAdmin} />}
-        {active === 'accounting' && isMaster && <SiteAccounting taskId={task.id} />}
       </div>
     </div>
   );
@@ -787,14 +857,14 @@ function DashboardContainer({ user, userData }) {
         ) : activeTab === 'materials' ? (
           <MaterialsView />
         ) : (
-           <PersonalAreaView user={user} userData={safeUserData} isMaster={isMaster} />
+           <PersonalAreaView user={user} userData={safeUserData} isMaster={isMaster} isAdmin={isAdmin} />
         )}
       </main>
     </div>
   );
 }
 
-// --- ENTRY POINT PRINCIPALE ---
+// --- PUNTO DI INGRESSO (ENTRY POINT) ---
 
 export default function App() {
   const [user, setUser] = useState(null);
