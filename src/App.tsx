@@ -107,7 +107,7 @@ const USERS_CONFIG = {
   'c.tardiota': { role: 'Dipendente', name: 'Carmine Tardiota' }
 };
 
-// --- HELPERS GLOBALI ---
+// --- HELPERS DI SISTEMA ---
 
 async function logOperation(userData, action, details) {
   let location = "N/D";
@@ -143,12 +143,12 @@ function LoadingScreen() {
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50 text-slate-500">
       <Loader2 className="w-10 h-10 animate-spin text-blue-600 mb-4" />
-      <p className="font-medium">Sincronizzazione ImpresadariAPP...</p>
+      <p className="font-medium animate-pulse">Sincronizzazione ImpresadariAPP...</p>
     </div>
   );
 }
 
-// --- SEZIONI DETTAGLIO CANTIERE ---
+// --- COMPONENTI DI DOMINIO ---
 
 function SiteOverview({ task, isMaster, isAdmin, userData }) {
   const [totals, setTotals] = useState({ materials: 0, hours: 0, cost: 0 });
@@ -156,7 +156,6 @@ function SiteOverview({ task, isMaster, isAdmin, userData }) {
 
   useEffect(() => {
     if (task.completed) {
-      // Carica dati per il resoconto finale
       const unsubM = onSnapshot(query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'materials'), where('taskId', '==', task.id)), s => {
         const mat = s.docs.reduce((sum, d) => sum + (parseFloat(d.data().quantity || 0) * parseFloat(d.data().cost || 0)), 0);
         setTotals(prev => ({...prev, materials: mat}));
@@ -171,95 +170,54 @@ function SiteOverview({ task, isMaster, isAdmin, userData }) {
 
   const handleToggleStatus = async () => {
     const newStatus = !task.completed;
-    if (newStatus && !window.confirm("Sei sicuro di voler chiudere il cantiere? Tutte le attività di squadra verranno bloccate.")) return;
-    if (!newStatus && !isAdmin) return; // Solo master full riaprono
+    if (newStatus && !window.confirm("Chiudere il cantiere? Tutte le attività saranno bloccate.")) return;
+    if (!newStatus && !isAdmin) return;
 
     try {
       await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'tasks', task.id), { completed: newStatus });
       await logOperation(userData, newStatus ? "Chiusura Cantiere" : "Riapertura Cantiere", task.title);
-      await sendNotification('all_masters', newStatus ? 'Cantiere Chiuso' : 'Cantiere Riaperto', `Il cantiere ${task.title} è stato ${newStatus ? 'chiuso' : 'riaperto'} da ${userData.name}.`);
-    } catch (e) { alert("Errore durante l'operazione"); }
+      await sendNotification('all_masters', newStatus ? 'Cantiere Chiuso' : 'Cantiere Riaperto', `Il cantiere ${task.title} è stato ${newStatus ? 'chiuso' : 'riaperto'}.`);
+    } catch (e) { alert("Errore"); }
   };
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-500">
-      {/* Box Stato e Azioni Master */}
+    <div className="space-y-6">
       <div className={`p-6 rounded-[32px] border flex flex-col sm:flex-row justify-between items-center gap-4 ${task.completed ? 'bg-slate-900 border-slate-800 text-white shadow-xl' : 'bg-white border-slate-200'}`}>
         <div className="flex items-center gap-4">
           <div className={`p-3 rounded-2xl ${task.completed ? 'bg-slate-800 text-green-400' : 'bg-blue-50 text-blue-600'}`}>
             {task.completed ? <LockKeyhole size={24}/> : <Activity size={24}/>}
           </div>
           <div>
-            <h4 className={`font-black uppercase tracking-tighter ${task.completed ? 'text-white' : 'text-slate-800'}`}>Stato Attuale</h4>
-            <p className={`text-xs font-bold ${task.completed ? 'text-slate-400' : 'text-blue-500'}`}>{task.completed ? 'CANTIERE TERMINATO' : 'CANTIERE IN CORSO'}</p>
+            <h4 className="font-black uppercase tracking-tighter">Stato</h4>
+            <p className={`text-xs font-bold ${task.completed ? 'text-slate-400' : 'text-blue-500'}`}>{task.completed ? 'TERMINATO' : 'IN CORSO'}</p>
           </div>
         </div>
-        
         {isMaster && (
           <div className="flex gap-2 w-full sm:w-auto">
             {!task.completed ? (
-              <button onClick={handleToggleStatus} className="w-full sm:w-auto bg-red-600 text-white px-6 py-3 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-red-700 shadow-lg shadow-red-200 transition-all">
-                <CheckCircle size={16}/> Chiudi Cantiere
-              </button>
-            ) : isAdmin ? (
-              <button onClick={handleToggleStatus} className="w-full sm:w-auto bg-blue-600 text-white px-6 py-3 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-blue-700 shadow-lg shadow-blue-900 transition-all">
-                <UnlockKeyhole size={16}/> Riapri Cantiere
-              </button>
-            ) : (
-              <div className="text-[10px] font-black text-slate-500 uppercase bg-slate-800 px-4 py-2 rounded-xl border border-slate-700">Solo Master Full può riaprire</div>
+              <button onClick={handleToggleStatus} className="w-full sm:w-auto bg-red-600 text-white px-6 py-3 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg">Chiudi Cantiere</button>
+            ) : isAdmin && (
+              <button onClick={handleToggleStatus} className="w-full sm:w-auto bg-blue-600 text-white px-6 py-3 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg">Riapri</button>
             )}
           </div>
         )}
       </div>
 
-      {/* Resoconto Finale se Chiuso */}
       {task.completed && (
-        <div className="bg-white p-8 rounded-[40px] border border-blue-100 shadow-xl space-y-6">
-          <div className="flex items-center gap-3 border-b pb-4">
-             <FileBarChart className="text-blue-600" size={28}/>
-             <h3 className="text-xl font-black text-slate-800 uppercase tracking-tighter">Resoconto Finale Cantiere</h3>
-          </div>
-          
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-             <div className="p-4 bg-slate-50 rounded-3xl border border-slate-100">
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Ore Totali</p>
-                <p className="text-2xl font-black text-slate-800">{totals.hours} H</p>
-             </div>
-             <div className="p-4 bg-slate-50 rounded-3xl border border-slate-100">
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Costo Materiali</p>
-                <p className="text-2xl font-black text-slate-800">€ {totals.materials.toFixed(2)}</p>
-             </div>
-             <div className="p-4 bg-blue-600 rounded-3xl text-white shadow-lg shadow-blue-100">
-                <p className="text-[10px] font-black text-blue-200 uppercase tracking-widest mb-1">Spesa Manodopera</p>
-                <p className="text-2xl font-black">€ {totals.cost.toFixed(2)}</p>
-             </div>
-          </div>
-
-          <div className="pt-4">
-             <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3">Squadra Operativa</h4>
-             <div className="flex flex-wrap gap-2">
-                {task.assignedTeam?.map(name => (
-                  <span key={name} className="bg-slate-100 text-slate-700 px-4 py-2 rounded-xl text-xs font-bold">{name}</span>
-                )) || <p className="text-xs text-slate-400 italic">Nessun membro assegnato registrato.</p>}
-             </div>
+        <div className="bg-white p-6 rounded-[40px] border border-blue-100 shadow-xl space-y-6 animate-in zoom-in-95">
+          <h3 className="text-xl font-black text-slate-800 uppercase tracking-tighter flex gap-3"><FileBarChart className="text-blue-600"/> Resoconto Finale</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+             <div className="p-4 bg-slate-50 rounded-3xl border text-center"><p className="text-[9px] font-black text-slate-400 uppercase">Ore Totali</p><p className="text-xl font-black">{totals.hours}</p></div>
+             <div className="p-4 bg-slate-50 rounded-3xl border text-center"><p className="text-[9px] font-black text-slate-400 uppercase">Materiali</p><p className="text-xl font-black">€ {totals.materials.toFixed(2)}</p></div>
+             <div className="p-4 bg-blue-600 rounded-3xl text-white text-center shadow-lg"><p className="text-[9px] font-black text-blue-200 uppercase">Manodopera</p><p className="text-xl font-black">€ {totals.cost.toFixed(2)}</p></div>
           </div>
         </div>
       )}
 
-      {/* Grid Info Standard */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-white p-5 rounded-3xl border shadow-sm">
-          <h4 className="font-bold text-slate-800 text-sm flex items-center gap-2"><Building2 size={16} className="text-blue-500"/> Committente</h4>
-          <p className="text-sm mt-2 text-slate-600 font-medium">{task.client}</p>
-        </div>
-        <div className="bg-white p-5 rounded-3xl border shadow-sm">
-          <h4 className="font-bold text-slate-800 text-sm flex items-center gap-2"><ShieldCheck size={16} className="text-indigo-500"/> Responsabile</h4>
-          <p className="text-sm mt-2 text-slate-600 font-medium">{task.authorName}</p>
-        </div>
-        <div className="bg-white p-5 rounded-3xl border shadow-sm">
-          <h4 className="font-bold text-slate-800 text-sm flex items-center gap-2"><Timer size={16} className="text-orange-500"/> Prossimo Step</h4>
-          <p className="text-sm mt-2 text-slate-600 font-medium truncate">{nextPhase ? String(nextPhase.name) : 'Non pianificato'}</p>
-        </div>
+        <div className="bg-white p-5 rounded-3xl border shadow-sm"><h4 className="font-bold text-slate-800 text-xs uppercase">Committente</h4><p className="text-sm mt-1 text-slate-600 font-medium">{task.client}</p></div>
+        <div className="bg-white p-5 rounded-3xl border shadow-sm"><h4 className="font-bold text-slate-800 text-xs uppercase">Assegnati</h4><p className="text-sm mt-1 text-slate-600 font-medium">{task.assignedTeam?.length || 0} Membri</p></div>
+        <div className="bg-white p-5 rounded-3xl border shadow-sm"><h4 className="font-bold text-slate-800 text-xs uppercase">Next</h4><p className="text-sm mt-1 text-slate-600 font-medium">{nextPhase ? nextPhase.name : 'N/D'}</p></div>
       </div>
     </div>
   );
@@ -292,24 +250,19 @@ function SiteChat({ taskId, userData, isClosed }) {
       <div className="flex-1 p-4 overflow-y-auto bg-slate-50 space-y-4" ref={scrollRef}>
         {messages.map(msg => (
           <div key={msg.id} className={`flex flex-col ${msg.userId === userData.uid ? 'items-end' : 'items-start'}`}>
-            <div className={`max-w-[85%] px-4 py-2 rounded-2xl text-sm ${msg.userId === userData.uid ? 'bg-blue-600 text-white rounded-br-none' : 'bg-white border text-slate-800 rounded-bl-none shadow-sm'}`}>
-              {msg.userId !== userData.uid && <p className="text-[10px] font-black text-blue-600 mb-1 uppercase tracking-tighter">{msg.userName}</p>}
+            <div className={`max-w-[80%] px-4 py-2 rounded-2xl text-sm ${msg.userId === userData.uid ? 'bg-blue-600 text-white rounded-br-none' : 'bg-white border text-slate-800 rounded-bl-none shadow-sm'}`}>
+              {msg.userId !== userData.uid && <p className="text-[10px] font-black text-blue-600 mb-1 uppercase">{msg.userName}</p>}
               {msg.message}
             </div>
-            <span className="text-[9px] text-slate-400 mt-1 px-1">{msg.createdAt ? new Date(msg.createdAt.seconds * 1000).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : '...'}</span>
           </div>
         ))}
       </div>
       {!isClosed ? (
         <form onSubmit={sendMessage} className="p-3 bg-white border-t flex gap-2">
-          <input className="flex-1 bg-slate-100 border-none rounded-xl px-4 py-2 text-sm outline-none font-medium" placeholder="Invia un messaggio alla squadra..." value={newMessage} onChange={e=>setNewMessage(e.target.value)} />
-          <button type="submit" className="bg-blue-600 text-white p-2 rounded-xl hover:bg-blue-700 transition-transform active:scale-95"><Send size={20}/></button>
+          <input className="flex-1 bg-slate-100 border-none rounded-xl px-4 py-2 text-sm outline-none" placeholder="Scrivi..." value={newMessage} onChange={e=>setNewMessage(e.target.value)} />
+          <button type="submit" className="bg-blue-600 text-white p-2 rounded-xl"><Send size={18}/></button>
         </form>
-      ) : (
-        <div className="p-4 bg-slate-100 text-center text-[10px] font-black uppercase text-slate-400 tracking-widest border-t flex items-center justify-center gap-2">
-          <LockKeyhole size={14}/> Chat in sola lettura (Cantiere Chiuso)
-        </div>
-      )}
+      ) : <div className="p-4 text-center text-xs text-slate-400 font-bold uppercase border-t">Cantiere Chiuso</div>}
     </div>
   );
 }
@@ -331,30 +284,28 @@ function SiteTeam({ task, isAdmin }) {
     <div className="space-y-4">
       {isAdmin && !task.completed && (
         <div className="flex gap-2">
-          <select value={selectedUser} onChange={e=>setSelectedUser(e.target.value)} className="flex-1 border rounded-2xl p-3 text-sm outline-none focus:ring-2 focus:ring-blue-600 font-bold bg-white shadow-sm">
+          <select value={selectedUser} onChange={e=>setSelectedUser(e.target.value)} className="flex-1 border rounded-xl p-3 text-sm outline-none focus:ring-2 focus:ring-blue-600 font-bold bg-white shadow-sm">
             <option value="">-- Seleziona Personale --</option>
             {allStaff.map(u => <option key={u.name} value={u.name} disabled={assigned.includes(u.name)}>{u.name} ({u.role})</option>)}
           </select>
-          <button onClick={handleAssign} className="bg-blue-600 text-white px-8 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg">Aggiungi</button>
+          <button onClick={handleAssign} className="bg-blue-600 text-white px-8 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-blue-100">Aggiungi</button>
         </div>
       )}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         {assigned.map(name => {
-          const staffMember = allStaff.find(u => u.name === name);
-          const isMasterRole = staffMember?.role === 'Master';
+          const staff = allStaff.find(u => u.name === name);
           return (
             <div key={name} className="p-4 bg-white border rounded-[28px] flex justify-between items-center shadow-sm relative group">
               <div className="flex items-center gap-4">
-                <div className={`w-10 h-10 rounded-2xl flex items-center justify-center font-black text-sm ${isMasterRole ? 'bg-purple-100 text-purple-700 border border-purple-200' : 'bg-blue-100 text-blue-700 border border-blue-200'}`}>
+                <div className={`w-10 h-10 rounded-2xl flex items-center justify-center font-black text-sm ${staff?.role === 'Master' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
                   {name.charAt(0)}
                 </div>
-                <div><span className="text-sm font-black text-slate-800 tracking-tighter uppercase leading-none">{name}</span><p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-1">{staffMember?.role || 'Operaio'}</p></div>
+                <div><span className="text-sm font-black text-slate-800 uppercase tracking-tighter leading-none">{name}</span><p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-1">{staff?.role || 'Operaio'}</p></div>
               </div>
               {isAdmin && !task.completed && <button onClick={async () => await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'tasks', task.id), { assignedTeam: arrayRemove(name) })} className="text-red-400 hover:bg-red-50 p-2 rounded-xl transition-colors"><X size={18}/></button>}
             </div>
           );
         })}
-        {assigned.length === 0 && <div className="col-span-full py-12 text-center text-slate-300 font-black text-xs uppercase tracking-[0.2em]">Nessun membro assegnato</div>}
       </div>
     </div>
   );
@@ -387,22 +338,18 @@ function SiteDocuments({ taskId, isAdmin, userData, isClosed }) {
   return (
     <div className="space-y-4">
       {isAdmin && !isClosed && (
-        <div className="bg-white p-5 rounded-[32px] border border-dashed border-slate-300 flex flex-col sm:flex-row justify-between items-center gap-4">
-          <p className="text-xs font-black text-slate-500 uppercase tracking-widest">Repository Documentale</p>
-          <div className="flex items-center gap-3">
-             <input type="file" onChange={handleUpload} className="text-xs" />
-             {uploading && <Loader2 className="animate-spin text-blue-600"/>}
-          </div>
+        <div className="bg-white p-5 rounded-[32px] border border-dashed border-slate-300 flex justify-between items-center">
+          <p className="text-xs font-black text-slate-500 uppercase tracking-widest">Archivio Documenti</p>
+          <input type="file" onChange={handleUpload} className="text-xs" />
         </div>
       )}
       <div className="grid gap-3">
         {docs.map(d => (
           <div key={d.id} className="flex items-center justify-between p-5 bg-white border rounded-[28px] shadow-sm">
-            <div className="flex items-center gap-4"><div className="p-3 bg-blue-50 rounded-2xl text-blue-500"><FileText size={20}/></div><span className="text-sm font-black text-slate-800 tracking-tighter uppercase">{d.name}</span></div>
+            <div className="flex items-center gap-4"><div className="p-3 bg-blue-50 rounded-2xl text-blue-500"><FileText size={20}/></div><span className="text-sm font-black uppercase tracking-tighter">{d.name}</span></div>
             <a href={d.data} download={d.name} className="p-3 bg-slate-50 hover:bg-blue-600 hover:text-white rounded-2xl transition-all"><Download size={20}/></a>
           </div>
         ))}
-        {docs.length === 0 && <p className="text-center py-10 text-slate-300 font-black text-xs uppercase tracking-widest">Nessun file presente</p>}
       </div>
     </div>
   );
@@ -426,24 +373,19 @@ function SiteSchedule({ task, isAdmin }) {
     <div className="space-y-4">
       {isAdmin && !task.completed && (
         <form onSubmit={addPhase} className="bg-white p-6 rounded-[32px] border grid grid-cols-1 md:grid-cols-4 gap-4 shadow-sm">
-          <input placeholder="Fase di lavoro" className="bg-slate-50 border-none rounded-2xl p-4 font-bold text-sm outline-none" value={newPhase.name} onChange={e=>setNewPhase({...newPhase, name: e.target.value})} />
-          <input type="date" className="bg-slate-50 border-none rounded-2xl p-4 font-bold text-sm outline-none" value={newPhase.start} onChange={e=>setNewPhase({...newPhase, start: e.target.value})} />
-          <input type="date" className="bg-slate-50 border-none rounded-2xl p-4 font-bold text-sm outline-none" value={newPhase.end} onChange={e=>setNewPhase({...newPhase, end: e.target.value})} />
-          <button type="submit" className="bg-blue-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest">Programma</button>
+          <input placeholder="Fase" className="bg-slate-50 border-none rounded-2xl p-4 font-bold text-sm outline-none shadow-inner" value={newPhase.name} onChange={e=>setNewPhase({...newPhase, name: e.target.value})} />
+          <input type="date" className="bg-slate-50 border-none rounded-2xl p-4 font-bold text-sm outline-none shadow-inner" value={newPhase.start} onChange={e=>setNewPhase({...newPhase, start: e.target.value})} />
+          <input type="date" className="bg-slate-50 border-none rounded-2xl p-4 font-bold text-sm outline-none shadow-inner" value={newPhase.end} onChange={e=>setNewPhase({...newPhase, end: e.target.value})} />
+          <button type="submit" className="bg-blue-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg">Aggiungi</button>
         </form>
       )}
       <div className="space-y-3">
         {schedule.map((p, i) => (
-          <div key={i} className="p-5 bg-white border rounded-[32px] flex justify-between items-center shadow-sm relative overflow-hidden group">
-            <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-blue-500"></div>
-            <div><p className="font-black text-slate-800 uppercase tracking-tighter">{String(p.name)}</p><p className="text-[10px] font-black text-slate-400 mt-1 tracking-widest">{new Date(p.start).toLocaleDateString()} — {new Date(p.end).toLocaleDateString()}</p></div>
-            {isAdmin && !task.completed && <button onClick={async () => {
-              const updated = schedule.filter((_, idx) => idx !== i);
-              await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'tasks', task.id), { schedule: updated });
-            }} className="text-red-300 hover:text-red-500 transition-colors"><Trash2 size={20}/></button>}
+          <div key={i} className="p-5 bg-white border rounded-[32px] flex justify-between items-center shadow-sm relative overflow-hidden">
+            <div className="absolute left-0 top-0 bottom-0 w-1 bg-blue-500"></div>
+            <div><p className="font-black text-slate-800 uppercase tracking-tighter">{String(p.name)}</p><p className="text-[10px] font-black text-slate-400 mt-1 uppercase tracking-widest">{new Date(p.start).toLocaleDateString()} — {new Date(p.end).toLocaleDateString()}</p></div>
           </div>
         ))}
-        {schedule.length === 0 && <p className="text-center py-10 text-slate-300 font-black text-xs uppercase tracking-widest">Nessun cronoprogramma</p>}
       </div>
     </div>
   );
@@ -492,11 +434,10 @@ function SitePhotos({ taskId, userData, isAdmin, isClosed }) {
             <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity"><Maximize2 className="text-white"/></div>
           </div>
         ))}
-        {photos.length === 0 && <div className="col-span-full py-16 text-center text-slate-300 font-black text-xs uppercase tracking-widest">Nessuna immagine caricata</div>}
       </div>
       {lightbox && (
         <div className="fixed inset-0 bg-black/95 z-50 flex items-center justify-center p-4 animate-in fade-in" onClick={()=>setLightbox(null)}>
-           <button className="absolute top-6 right-6 text-white bg-white/10 p-2 rounded-full"><X size={32}/></button>
+           <button className="absolute top-6 right-6 text-white"><X size={32}/></button>
            <img src={lightbox} className="max-w-full max-h-full rounded-2xl shadow-2xl object-contain" alt="Fullscreen" />
         </div>
       )}
@@ -524,15 +465,11 @@ function MaterialRequestsView({ taskId, userData, isClosed }) {
 
   return (
     <div className="space-y-4">
-      {!isClosed ? (
-        <form onSubmit={add} className="flex gap-2 bg-white p-4 rounded-[32px] border shadow-sm">
+      {!isClosed && (
+        <form onSubmit={add} className="flex gap-2 bg-white p-3 rounded-[32px] border shadow-sm">
           <input value={item} onChange={e=>setItem(e.target.value)} placeholder="Di cosa hai bisogno?" className="flex-1 bg-transparent px-4 py-1 outline-none text-sm font-bold" />
           <button className="bg-blue-600 text-white px-8 py-3 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg">Invia</button>
         </form>
-      ) : (
-        <div className="p-4 bg-slate-100 rounded-2xl text-center text-xs font-black text-slate-400 uppercase tracking-widest border">
-          Sezione chiusa con il cantiere
-        </div>
       )}
       <div className="space-y-3">
         {requests.map(r => (
@@ -606,31 +543,24 @@ function TasksView({ userData, isAdmin, onSelectTask }) {
   );
 }
 
-function DailyReportsView({ userData }) {
+function DailyReportsView({ userData, tasks }) {
   const [reports, setReports] = useState([]);
-  const [tasks, setTasks] = useState([]);
   const [form, setForm] = useState({ taskId: '', hours: '', desc: '' });
   const canvasRef = useRef(null);
 
   useEffect(() => {
-    onSnapshot(collection(db, 'artifacts', APP_ID, 'public', 'data', 'tasks'), s => setTasks(s.docs.map(d=>({id:d.id, ...d.data()}))));
-    onSnapshot(query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'daily_reports'), orderBy('createdAt', 'desc'), limit(15)), s => setReports(s.docs.map(d=>({id:d.id, ...d.data()}))));
+    const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'daily_reports'), orderBy('createdAt', 'desc'), limit(15));
+    return onSnapshot(q, s => setReports(s.docs.map(d=>({id:d.id, ...d.data()}))));
   }, []);
 
   const submit = async (e) => {
     e.preventDefault();
-    const sign = canvasRef.current?.toDataURL();
     const currentTask = tasks.find(t=>t.id===form.taskId);
-    if(currentTask?.completed) { alert("Cantiere chiuso, non puoi inviare report."); return; }
-    
+    if(currentTask?.completed) { alert("Cantiere chiuso."); return; }
+    const sign = canvasRef.current?.toDataURL();
     await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'daily_reports'), { 
-      ...form, 
-      taskTitle: currentTask?.title || 'Cantiere', 
-      userName: userData.name, 
-      sign, 
-      createdAt: serverTimestamp() 
+      ...form, taskTitle: currentTask?.title || 'Cantiere', userName: userData.name, sign, createdAt: serverTimestamp() 
     });
-    await logOperation(userData, "Invia Rapportino", currentTask?.title);
     setForm({ taskId: '', hours: '', desc: '' });
     if(canvasRef.current) canvasRef.current.getContext('2d').clearRect(0,0,300,100);
   };
@@ -638,31 +568,31 @@ function DailyReportsView({ userData }) {
   return (
     <div className="space-y-8 max-w-2xl mx-auto">
       <form onSubmit={submit} className="bg-white p-10 rounded-[48px] border shadow-2xl space-y-6">
-        <h3 className="text-2xl font-black text-slate-800 uppercase tracking-tighter flex items-center gap-4"><PenTool size={28} className="text-blue-600"/> Registro Attività</h3>
+        <h3 className="text-2xl font-black text-slate-800 uppercase tracking-tighter flex items-center gap-4"><PenTool size={28} className="text-blue-600"/> Rapportino</h3>
         <select value={form.taskId} onChange={e=>setForm({...form, taskId: e.target.value})} className="w-full bg-slate-50 border-none rounded-3xl p-5 outline-none font-bold text-sm shadow-inner" required>
-          <option value="">Scegli Cantiere Operativo...</option>
+          <option value="">Scegli Cantiere...</option>
           {tasks.filter(t=>!t.completed).map(t=><option key={t.id} value={t.id}>{t.title}</option>)}
         </select>
-        <div className="flex flex-col sm:flex-row gap-4">
-           <input type="number" step="0.5" placeholder="Ore" value={form.hours} onChange={e=>setForm({...form, hours: e.target.value})} className="flex-1 bg-slate-50 rounded-3xl p-5 font-bold text-sm border-none outline-none shadow-inner" required />
-           <input type="date" className="flex-1 bg-slate-50 rounded-3xl p-5 font-bold text-sm border-none outline-none shadow-inner" defaultValue={new Date().toISOString().split('T')[0]} />
+        <div className="flex gap-4">
+           <input type="number" step="0.5" placeholder="Ore" value={form.hours} onChange={e=>setForm({...form, hours: e.target.value})} className="flex-1 bg-slate-50 rounded-3xl p-5 font-bold text-sm border-none shadow-inner" required />
+           <input type="date" className="flex-1 bg-slate-50 rounded-3xl p-5 font-bold text-sm border-none shadow-inner" defaultValue={new Date().toISOString().split('T')[0]} />
         </div>
-        <textarea placeholder="Descrizione analitica dei lavori..." value={form.desc} onChange={e=>setForm({...form, desc: e.target.value})} className="w-full bg-slate-50 border-none rounded-3xl p-5 font-bold text-sm shadow-inner outline-none" rows="4" required></textarea>
+        <textarea placeholder="Descrizione lavori..." value={form.desc} onChange={e=>setForm({...form, desc: e.target.value})} className="w-full bg-slate-50 border-none rounded-3xl p-5 font-bold text-sm shadow-inner" rows="4" required />
         <div className="border border-dashed rounded-[32px] p-6 bg-slate-50 text-center">
-           <p className="text-[10px] font-black text-slate-400 mb-4 uppercase tracking-[0.2em]">Firma Responsabile</p>
+           <p className="text-[10px] font-black text-slate-400 mb-4 uppercase tracking-widest">Firma Responsabile</p>
            <canvas ref={canvasRef} width={300} height={100} className="w-full h-32 bg-white rounded-3xl border shadow-inner touch-none cursor-crosshair" onMouseDown={(e) => {
-             const ctx = e.target.getContext('2d'); ctx.lineWidth = 3; ctx.lineCap = "round"; ctx.beginPath(); ctx.moveTo(e.nativeEvent.offsetX, e.nativeEvent.offsetY);
+             const ctx = e.target.getContext('2d'); ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(e.nativeEvent.offsetX, e.nativeEvent.offsetY);
            }} onMouseMove={(e) => {
              if(e.buttons !== 1) return; const ctx = e.target.getContext('2d'); ctx.lineTo(e.nativeEvent.offsetX, e.nativeEvent.offsetY); ctx.stroke();
            }} />
         </div>
-        <button type="submit" className="w-full bg-blue-600 text-white py-5 rounded-[28px] font-black uppercase tracking-widest text-sm shadow-xl shadow-blue-100 hover:scale-[1.02] transition-all">Salva Rapporto</button>
+        <button type="submit" className="w-full bg-blue-600 text-white py-5 rounded-[28px] font-black uppercase tracking-widest shadow-xl">Invia Report</button>
       </form>
       <div className="space-y-4">
         {reports.map(r => (
-          <div key={r.id} className="p-6 bg-white border rounded-[36px] flex justify-between items-center shadow-sm border-slate-100">
-            <div className="flex-1 overflow-hidden pr-4"><p className="font-bold text-slate-800 line-clamp-1 uppercase tracking-tight">{r.desc}</p><p className="text-[10px] text-slate-400 mt-2 uppercase font-black tracking-widest">{r.userName} • {r.taskTitle} • {r.hours} H</p></div>
-            {r.sign && <img src={r.sign} className="h-12 opacity-30 grayscale rounded-xl border border-slate-100" alt="Sign"/>}
+          <div key={r.id} className="p-6 bg-white border rounded-[36px] flex justify-between items-center shadow-sm">
+            <div className="flex-1 pr-4"><p className="font-bold text-slate-800 line-clamp-1 uppercase tracking-tight">{r.desc}</p><p className="text-[10px] text-slate-400 mt-2 uppercase font-black tracking-widest">{r.userName} • {r.taskTitle} • {r.hours} H</p></div>
+            {r.sign && <img src={r.sign} className="h-12 opacity-30 grayscale rounded-xl" alt="Sign"/>}
           </div>
         ))}
       </div>
@@ -670,7 +600,7 @@ function DailyReportsView({ userData }) {
   );
 }
 
-function VehiclesView({ isAdmin, isMaster }) {
+function VehiclesView({ userData, isAdmin, isMaster }) {
   const [vehicles, setVehicles] = useState([]);
   const [newVehicle, setNewVehicle] = useState({ name: '', plate: '', type: 'Furgone', insuranceDate: '', taxDate: '', inspectionDate: '' });
   const allStaff = Object.values(USERS_CONFIG);
@@ -697,44 +627,40 @@ function VehiclesView({ isAdmin, isMaster }) {
   return (
     <div className="space-y-8">
       {isAdmin && (
-        <form onSubmit={add} className="bg-white p-10 rounded-[48px] border shadow-xl space-y-6">
+        <form onSubmit={add} className="bg-white p-10 rounded-[48px] border shadow-lg space-y-6">
           <h3 className="text-2xl font-black text-slate-800 uppercase tracking-tighter flex items-center gap-4"><Truck size={28} className="text-blue-600"/> Parco Mezzi</h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-             <input placeholder="Modello" className="bg-slate-50 rounded-3xl p-5 outline-none font-bold text-sm shadow-inner" value={newVehicle.name} onChange={e=>setNewVehicle({...newVehicle, name: e.target.value})} required />
-             <input placeholder="Targa" className="bg-slate-50 rounded-3xl p-5 outline-none font-bold text-sm uppercase shadow-inner" value={newVehicle.plate} onChange={e=>setNewVehicle({...newVehicle, plate: e.target.value})} required />
-             <select className="bg-slate-50 rounded-3xl p-5 outline-none font-bold text-sm shadow-inner" value={newVehicle.type} onChange={e=>setNewVehicle({...newVehicle, type: e.target.value})}><option>Furgone</option><option>Auto</option><option>Attrezzatura</option></select>
+             <input placeholder="Modello" className="bg-slate-50 rounded-3xl p-5 outline-none font-bold shadow-inner" value={newVehicle.name} onChange={e=>setNewVehicle({...newVehicle, name: e.target.value})} required />
+             <input placeholder="Targa" className="bg-slate-50 rounded-3xl p-5 outline-none font-bold uppercase shadow-inner" value={newVehicle.plate} onChange={e=>setNewVehicle({...newVehicle, plate: e.target.value})} required />
+             <select className="bg-slate-50 rounded-3xl p-5 outline-none font-bold shadow-inner" value={newVehicle.type} onChange={e=>setNewVehicle({...newVehicle, type: e.target.value})}><option>Furgone</option><option>Auto</option><option>Attrezzatura</option></select>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-             <div className="flex flex-col"><label className="text-[10px] font-black text-slate-400 uppercase mb-2 px-4 tracking-widest">Assicurazione</label><input type="date" className="bg-slate-50 rounded-3xl p-5 outline-none font-bold text-sm shadow-inner" value={newVehicle.insuranceDate} onChange={e=>setNewVehicle({...newVehicle, insuranceDate: e.target.value})} /></div>
-             <div className="flex flex-col"><label className="text-[10px] font-black text-slate-400 uppercase mb-2 px-4 tracking-widest">Bollo</label><input type="date" className="bg-slate-50 rounded-3xl p-5 outline-none font-bold text-sm shadow-inner" value={newVehicle.taxDate} onChange={e=>setNewVehicle({...newVehicle, taxDate: e.target.value})} /></div>
-             <div className="flex flex-col"><label className="text-[10px] font-black text-slate-400 uppercase mb-2 px-4 tracking-widest">Revisione</label><input type="date" className="bg-slate-50 rounded-3xl p-5 outline-none font-bold text-sm shadow-inner" value={newVehicle.inspectionDate} onChange={e=>setNewVehicle({...newVehicle, inspectionDate: e.target.value})} /></div>
+             <div className="flex flex-col"><label className="text-[10px] font-black text-slate-400 uppercase mb-2 px-4 tracking-widest">Assicurazione</label><input type="date" className="bg-slate-50 rounded-3xl p-5 outline-none font-bold shadow-inner" value={newVehicle.insuranceDate} onChange={e=>setNewVehicle({...newVehicle, insuranceDate: e.target.value})} /></div>
+             <div className="flex flex-col"><label className="text-[10px] font-black text-slate-400 uppercase mb-2 px-4 tracking-widest">Bollo</label><input type="date" className="bg-slate-50 rounded-3xl p-5 outline-none font-bold shadow-inner" value={newVehicle.taxDate} onChange={e=>setNewVehicle({...newVehicle, taxDate: e.target.value})} /></div>
+             <div className="flex flex-col"><label className="text-[10px] font-black text-slate-400 uppercase mb-2 px-4 tracking-widest">Revisione</label><input type="date" className="bg-slate-50 rounded-3xl p-5 outline-none font-bold shadow-inner" value={newVehicle.inspectionDate} onChange={e=>setNewVehicle({...newVehicle, inspectionDate: e.target.value})} /></div>
           </div>
-          <button type="submit" className="w-full bg-blue-600 text-white py-5 rounded-3xl font-black uppercase tracking-widest text-sm shadow-lg shadow-blue-100">Registra Mezzo</button>
+          <button type="submit" className="w-full bg-blue-600 text-white py-5 rounded-3xl font-black uppercase shadow-lg">Registra</button>
         </form>
       )}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {vehicles.map(v => {
           const ins = getStatus(v.insuranceDate); const bol = getStatus(v.taxDate); const rev = getStatus(v.inspectionDate);
           return (
-            <div key={v.id} className="bg-white p-8 rounded-[40px] border shadow-sm relative group hover:shadow-lg transition-all border-slate-100">
-              <div className="flex justify-between items-start mb-6">
-                <div><h4 className="font-black text-xl text-slate-800 leading-tight uppercase tracking-tighter">{v.name}</h4><p className="text-[10px] bg-slate-100 px-3 py-1 rounded-xl font-black text-slate-500 uppercase mt-2 w-fit tracking-[0.2em] border">{v.plate}</p></div>
-                <div className="p-3 bg-blue-50 rounded-2xl text-blue-600 shadow-sm"><Truck size={24}/></div>
-              </div>
-              <div className="space-y-3 mt-6 border-t pt-6 border-slate-50">
+            <div key={v.id} className="bg-white p-8 rounded-[40px] border shadow-sm relative group hover:shadow-lg transition-all">
+              <div><h4 className="font-black text-xl text-slate-800 leading-tight uppercase tracking-tighter">{v.name}</h4><p className="text-[10px] bg-slate-100 px-3 py-1 rounded-xl font-black text-slate-500 uppercase mt-2 w-fit tracking-widest">{v.plate}</p></div>
+              <div className="space-y-3 mt-6 border-t pt-6">
                  <div className="flex justify-between text-xs"><span className="text-slate-400 font-bold uppercase tracking-widest">Assicurazione:</span><span className={ins.class}>{ins.label}</span></div>
                  <div className="flex justify-between text-xs"><span className="text-slate-400 font-bold uppercase tracking-widest">Bollo:</span><span className={bol.class}>{bol.label}</span></div>
                  <div className="flex justify-between text-xs"><span className="text-slate-400 font-bold uppercase tracking-widest">Revisione:</span><span className={rev.class}>{rev.label}</span></div>
               </div>
-              <div className="mt-8 pt-6 border-t border-slate-50 flex flex-col gap-2">
-                 <p className="text-[9px] font-black text-slate-300 uppercase tracking-[0.3em]">Assegnazione:</p>
+              <div className="mt-8 pt-6 border-t flex flex-col gap-2">
                  {isAdmin ? (
                    <select className="bg-slate-50 border-none rounded-xl p-3 text-xs font-black text-blue-600 outline-none uppercase shadow-inner" value={v.assignedTo} onChange={async (e)=>await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'vehicles', v.id), {assignedTo: e.target.value})}>
                      <option>Libero</option>{allStaff.map(u=><option key={u.name} value={u.name}>{u.name}</option>)}
                    </select>
                  ) : <p className="text-sm font-black text-blue-600 uppercase tracking-tight">{v.assignedTo}</p>}
               </div>
-              {isAdmin && <button onClick={async()=>await deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'vehicles', v.id))} className="absolute top-4 right-4 text-slate-200 hover:text-red-400 transition-colors"><Trash2 size={16}/></button>}
+              {isAdmin && <button onClick={async()=>await deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'vehicles', v.id))} className="absolute top-4 right-4 text-slate-200 hover:text-red-400"><Trash2 size={16}/></button>}
             </div>
           )
         })}
@@ -743,44 +669,210 @@ function VehiclesView({ isAdmin, isMaster }) {
   );
 }
 
-function MaterialsView() {
-  const [items, setItems] = useState([]);
+// --- LOGICA AREA PERSONALE ---
+
+function LeaveRequestsPanel({ currentUser, targetIdentifier, isMaster, isAdmin, userData }) {
+  const [leaves, setLeaves] = useState([]);
+  const [newRequest, setNewRequest] = useState({ start: '', end: '', type: 'Ferie', reason: '' });
+
   useEffect(() => {
-    const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'materials'), orderBy('createdAt', 'desc'), limit(50));
-    return onSnapshot(q, s => setItems(s.docs.map(d=>({id:d.id, ...d.data()}))));
-  }, []);
+    const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'leaves'));
+    return onSnapshot(q, (snap) => {
+      const all = snap.docs.map(d => ({id: d.id, ...d.data()}));
+      setLeaves(all.filter(l => (targetIdentifier === currentUser.uid ? l.userId === currentUser.uid : l.username === targetIdentifier)).sort((a,b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)));
+    });
+  }, [targetIdentifier, currentUser]);
+
+  const requestLeave = async (e) => {
+    e.preventDefault();
+    if (!newRequest.start || !newRequest.end) return;
+    await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'leaves'), {
+      ...newRequest, userId: currentUser.uid, username: currentUser.email?.split('@')[0], fullName: userData?.name || 'Utente', status: 'pending', createdAt: serverTimestamp()
+    });
+    setNewRequest({ start: '', end: '', type: 'Ferie', reason: '' });
+  };
+
+  const handleStatus = async (id, status, reqUserUid) => {
+    if (!isAdmin) return; 
+    await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'leaves', id), { status });
+  };
+
   return (
-    <div className="bg-white rounded-[40px] border overflow-hidden shadow-sm">
-      <div className="overflow-x-auto">
-        <table className="w-full text-left text-sm">
-          <thead className="bg-slate-50 text-slate-400 uppercase text-[10px] font-black tracking-widest border-b">
-            <tr><th className="p-6">Materiale</th><th className="p-6">Giacenza</th><th className="p-6">Fornitore</th></tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {items.map(i=>(
-              <tr key={i.id} className="hover:bg-slate-50 transition-colors"><td className="p-6 font-black text-slate-800 tracking-tight">{i.name}</td><td className="p-6 text-slate-600 font-bold">{i.quantity}</td><td className="p-6 text-slate-400 font-medium tracking-tight uppercase text-xs">{i.supplier}</td></tr>
-            ))}
-            {items.length === 0 && <tr><td colSpan="3" className="p-20 text-center text-slate-300 font-black uppercase text-xs tracking-widest">Magazzino Vuoto</td></tr>}
-          </tbody>
-        </table>
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 animate-in fade-in duration-500">
+      {targetIdentifier === currentUser.uid && (
+        <div className="bg-white p-8 rounded-[40px] border shadow-sm h-fit space-y-4">
+          <h3 className="font-black text-slate-700 uppercase text-xs tracking-widest">Richiesta Assenza</h3>
+          <form onSubmit={requestLeave} className="space-y-4">
+            <select className="w-full bg-slate-50 rounded-2xl p-4 font-bold text-sm outline-none" value={newRequest.type} onChange={e=>setNewRequest({...newRequest, type: e.target.value})}><option>Ferie</option><option>Permesso (Ore)</option><option>Malattia</option></select>
+            <input type="date" className="w-full bg-slate-50 rounded-2xl p-4 font-bold text-sm" value={newRequest.start} onChange={e=>setNewRequest({...newRequest, start: e.target.value})}/>
+            <input type="date" className="w-full bg-slate-50 rounded-2xl p-4 font-bold text-sm" value={newRequest.end} onChange={e=>setNewRequest({...newRequest, end: e.target.value})}/>
+            <button type="submit" className="w-full bg-blue-600 text-white p-4 rounded-2xl font-black uppercase text-xs tracking-widest shadow-lg shadow-blue-100">Invia</button>
+          </form>
+        </div>
+      )}
+      <div className={`col-span-1 ${targetIdentifier === currentUser.uid ? 'md:col-span-2' : 'md:col-span-3'} space-y-3`}>
+        {leaves.map(req => (
+            <div key={req.id} className="bg-white p-6 rounded-[32px] border shadow-sm flex justify-between items-center transition-all border-slate-100">
+              <div><div className="flex items-center gap-3"><span className={`px-3 py-1 rounded-lg text-[9px] font-black tracking-widest ${req.status === 'approved' ? 'bg-green-100 text-green-700' : req.status === 'rejected' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>{req.status.toUpperCase()}</span><h4 className="font-bold text-slate-800 uppercase tracking-tighter">{req.type}</h4></div><p className="text-sm text-slate-500 mt-2 font-bold">{new Date(req.start).toLocaleDateString()} — {new Date(req.end).toLocaleDateString()}</p></div>
+              {isAdmin && targetIdentifier !== currentUser.uid && req.status === 'pending' && (
+                <div className="flex gap-2"><button onClick={() => handleStatus(req.id, 'approved', req.userId)} className="bg-green-600 text-white px-5 py-2 rounded-xl text-xs font-black uppercase tracking-widest shadow-md shadow-green-100 transition-all hover:scale-105">Accetta</button><button onClick={() => handleStatus(req.id, 'rejected', req.userId)} className="bg-red-50 text-red-600 px-5 py-2 rounded-xl text-xs font-black uppercase tracking-widest border border-red-100 transition-all hover:bg-red-100">Rifiuta</button></div>
+              )}
+            </div>
+          ))}
+          {leaves.length === 0 && <p className="text-center py-20 text-slate-300 font-black uppercase text-[10px] tracking-[0.3em]">Nessuna voce trovata</p>}
       </div>
     </div>
   );
 }
 
-// --- DASHBOARD E ENTRY POINT ---
+function PersonalAreaView({ user, userData, isMaster, isAdmin }) {
+  const [sub, setSub] = useState('leaves');
+  const [targetUser, setTargetUser] = useState(user.uid); 
+  const [usersList, setUsersList] = useState([]);
+  const [logs, setLogs] = useState([]);
+
+  useEffect(() => {
+    if(isMaster) { 
+      setUsersList(Object.entries(USERS_CONFIG).map(([k, v]) => ({ username: k, ...v }))); 
+      return onSnapshot(query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'audit_logs'), orderBy('createdAt', 'desc'), limit(30)), s => setLogs(s.docs.map(d=>({id:d.id, ...d.data()}))));
+    }
+  }, [isMaster]);
+
+  return (
+    <div className="space-y-6">
+       <div className="bg-white p-8 rounded-[40px] border shadow-sm flex flex-col sm:flex-row justify-between items-center gap-6">
+         <div className="flex items-center gap-5 w-full sm:w-auto">
+            <div className="w-16 h-16 bg-blue-600 rounded-3xl flex items-center justify-center text-white text-2xl font-black shadow-xl uppercase">{userData?.name?.charAt(0)}</div>
+            <div className="flex-1">
+              <h2 className="text-2xl font-black text-slate-800 tracking-tighter uppercase leading-none">{userData?.name}</h2>
+              {isMaster && (
+                <select className="mt-3 text-[10px] font-black uppercase tracking-widest text-blue-600 bg-blue-50 border-none rounded-xl p-2 outline-none cursor-pointer" value={targetUser} onChange={(e) => setTargetUser(e.target.value)}>
+                   <option value={user.uid}>Mio Profilo Personale</option>
+                   {usersList.map(u => (<option key={u.username} value={u.username}>Vedi: {u.name}</option>))}
+                </select>
+              )}
+            </div>
+         </div>
+         <div className="flex gap-4 w-full sm:w-auto">
+           <button onClick={()=>setSub('leaves')} className={`flex-1 sm:px-6 py-2 text-xs font-black uppercase tracking-widest transition-all ${sub === 'leaves' ? 'bg-blue-600 text-white rounded-2xl shadow-lg' : 'text-slate-400'}`}>Ferie</button>
+           <button onClick={()=>setSub('docs')} className={`flex-1 sm:px-6 py-2 text-xs font-black uppercase tracking-widest transition-all ${sub === 'docs' ? 'bg-blue-600 text-white rounded-2xl shadow-lg' : 'text-slate-400'}`}>Documenti</button>
+           {isMaster && <button onClick={()=>setSub('logs')} className={`flex-1 sm:px-6 py-2 text-xs font-black uppercase tracking-widest transition-all ${sub === 'logs' ? 'bg-blue-600 text-white rounded-2xl shadow-lg' : 'text-slate-400'}`}>Audit Log</button>}
+         </div>
+       </div>
+
+       {sub === 'leaves' && <LeaveRequestsPanel currentUser={user} targetIdentifier={targetUser} isMaster={isMaster} isAdmin={isAdmin} userData={userData} />}
+       
+       {sub === 'logs' && isMaster && (
+          <div className="bg-white border rounded-[32px] overflow-hidden shadow-sm overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 text-slate-400 font-black uppercase tracking-widest border-b"><tr><th className="p-5">Membro</th><th className="p-5">Azione</th><th className="p-5">GPS</th><th className="p-5">Data</th></tr></thead>
+                <tbody className="divide-y">{logs.map(l=>(<tr key={l.id} className="hover:bg-slate-50"><td className="p-5 font-bold uppercase">{l.userName}</td><td className="p-5">{l.action}</td><td className="p-5 font-mono text-blue-500 uppercase">{l.location}</td><td className="p-5 text-slate-400">{l.createdAt?.seconds ? new Date(l.createdAt.seconds * 1000).toLocaleString() : '-'}</td></tr>))}</tbody>
+              </table>
+          </div>
+       )}
+       {sub === 'docs' && <div className="bg-white p-16 rounded-[40px] border text-center text-slate-200 flex flex-col items-center gap-4"><FileUp size={64} strokeWidth={1}/><p className="text-xs font-black uppercase tracking-[0.3em]">Area documentale in fase di aggiornamento</p></div>}
+    </div>
+  );
+}
+
+// --- DASHBOARD CONTAINER E AUTH SCREEN ---
+
+function AuthScreen() {
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [imgError, setImgError] = useState(false);
+
+  const handleAuth = async (e) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    const email = `${username.trim().toLowerCase()}@impresadaria.app`;
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+    } catch (err) {
+      if (err.code === 'auth/user-not-found' || err.code === 'auth/invalid-credential') {
+        try { await createUserWithEmailAndPassword(auth, email, password); } catch (re) { setError("Errore credenziali"); }
+      } else setError("Errore accesso");
+    } finally { setIsSubmitting(false); }
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center p-4 bg-slate-100">
+      <div className="max-w-md w-full bg-white rounded-[48px] shadow-2xl overflow-hidden border">
+        <div className="bg-blue-800 p-12 text-center text-white relative">
+          <div className="w-24 h-24 bg-white mx-auto rounded-3xl mb-8 flex items-center justify-center p-5 shadow-xl">
+             {!imgError ? <img src="logo.jpg" onError={()=>setImgError(true)} alt="Logo" className="object-contain" /> : <Building2 size={48} className="text-blue-800"/>}
+          </div>
+          <h1 className="text-3xl font-black uppercase tracking-tighter">Impresadaria</h1>
+          <p className="text-blue-200 text-[10px] font-black uppercase tracking-widest mt-2">Impresa d'Aria Srl</p>
+        </div>
+        <form onSubmit={handleAuth} className="p-10 space-y-5">
+          {error && <div className="p-4 bg-red-50 text-red-700 text-xs font-bold rounded-2xl border border-red-100">{error}</div>}
+          <div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-4">User</label><input type="text" value={username} onChange={e=>setUsername(e.target.value)} required className="w-full bg-slate-50 border-none rounded-2xl p-4 outline-none font-bold" /></div>
+          <div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-4">Pass</label><input type="password" value={password} onChange={e=>setPassword(e.target.value)} required className="w-full bg-slate-50 border-none rounded-2xl p-4 outline-none font-bold" /></div>
+          <button type="submit" disabled={isSubmitting} className="w-full bg-blue-600 text-white py-5 rounded-[24px] font-black uppercase shadow-xl hover:bg-blue-700 transition-all flex items-center justify-center gap-3">
+             {isSubmitting ? <Loader2 className="animate-spin"/> : "Entra"}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function TaskDetailContainer({ task, userData, isMaster, isAdmin, onBack }) {
+  const [active, setActive] = useState('overview');
+  const isClosed = task.completed;
+  
+  const tabs = [
+    { id: 'overview', label: 'Info', icon: Activity },
+    { id: 'chat', label: 'Chat', icon: MessageSquare },
+    { id: 'team', label: 'Squadra', icon: Users },
+    { id: 'documents', label: 'Documenti', icon: FileCheck },
+    { id: 'schedule', label: 'Crono', icon: CalendarRange },
+    { id: 'requests', label: 'Richieste', icon: ShoppingCart },
+    { id: 'photos', label: 'Foto', icon: Camera },
+    ...(isMaster ? [{ id: 'accounting', label: 'Costi', icon: Calculator }] : [])
+  ];
+
+  return (
+    <div className="space-y-6 animate-in fade-in duration-500">
+      <button onClick={onBack} className="flex items-center gap-2 text-slate-400 text-sm font-bold uppercase tracking-widest hover:text-blue-600"><ArrowLeft size={16}/> Lista</button>
+      <div className="bg-white p-6 rounded-[32px] border shadow-sm">
+        <h2 className="text-2xl font-black text-slate-800 tracking-tighter uppercase">{task.title}</h2>
+        <div className="flex gap-2 mt-8 border-b overflow-x-auto scrollbar-hide">
+          {tabs.map(t => (
+            <button key={t.id} onClick={()=>setActive(t.id)} className={`px-4 py-3 text-[10px] font-black uppercase tracking-widest border-b-2 transition-all whitespace-nowrap flex items-center gap-2 ${active === t.id ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400'}`}><t.icon size={14}/>{t.label}</button>
+          ))}
+        </div>
+      </div>
+      <div className="mt-4">
+        {active === 'overview' && <SiteOverview task={task} isMaster={isMaster} isAdmin={isAdmin} userData={userData} />}
+        {active === 'chat' && <SiteChat taskId={task.id} userData={userData} isClosed={isClosed} />}
+        {active === 'team' && <SiteTeam task={task} isAdmin={isAdmin} />}
+        {active === 'documents' && <SiteDocuments taskId={task.id} isAdmin={isAdmin} userData={userData} isClosed={isClosed} />}
+        {active === 'schedule' && <SiteSchedule task={task} isAdmin={isAdmin} />}
+        {active === 'requests' && <MaterialRequestsView taskId={task.id} userData={userData} isClosed={isClosed} />}
+        {active === 'photos' && <SitePhotos taskId={task.id} userData={userData} isAdmin={isAdmin} isClosed={isClosed} />}
+        {active === 'accounting' && isMaster && <SiteAccounting taskId={task.id} />}
+      </div>
+    </div>
+  );
+}
 
 function DashboardContainer({ user, userData }) {
   const [selectedTask, setSelectedTask] = useState(null); 
   const [activeTab, setActiveTab] = useState('tasks'); 
   const [notifications, setNotifications] = useState([]);
   const [showNotifPanel, setShowNotifPanel] = useState(false);
+  const [allTasks, setAllTasks] = useState([]);
 
   const safeUserData = userData || { role: 'Dipendente', name: 'Utente', uid: user?.uid };
   const isMaster = safeUserData.role === 'Master';
   const isAdmin = safeUserData.role === 'Master' && safeUserData.access === 'full'; 
 
   useEffect(() => {
+    onSnapshot(collection(db, 'artifacts', APP_ID, 'public', 'data', 'tasks'), s => setAllTasks(s.docs.map(d=>({id:d.id, ...d.data()}))));
     if (!user) return;
     const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'notifications'));
     return onSnapshot(q, (snap) => {
@@ -798,25 +890,21 @@ function DashboardContainer({ user, userData }) {
           </div>
           <div className="flex items-center gap-5">
             <div className="relative">
-              <button onClick={() => setShowNotifPanel(!showNotifPanel)} className="p-3 bg-slate-50 rounded-2xl relative text-slate-400 transition-colors hover:bg-slate-100 hover:text-blue-600 border border-slate-200"><Bell size={20} />{notifications.filter(n=>!n.read).length > 0 && <span className="absolute top-2 right-2 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-white"></span>}</button>
+              <button onClick={() => setShowNotifPanel(!showNotifPanel)} className="p-3 bg-slate-50 rounded-2xl relative text-slate-400 transition-colors hover:text-blue-600 border border-slate-200"><Bell size={20} />{notifications.filter(n=>!n.read).length > 0 && <span className="absolute top-2 right-2 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-white"></span>}</button>
               {showNotifPanel && (
-                <div className="absolute right-0 top-14 w-80 bg-white rounded-[32px] shadow-2xl border-4 border-slate-50 p-2 z-50 animate-in zoom-in-95">
-                  <div className="p-4 border-b flex justify-between items-center font-black text-[11px] uppercase tracking-widest text-slate-400">Ultimi Avvisi <button onClick={()=>setShowNotifPanel(false)} className="bg-slate-100 p-1 rounded-lg"><X size={14}/></button></div>
-                  <div className="max-h-80 overflow-y-auto scrollbar-hide">
+                <div className="absolute right-0 top-14 w-80 bg-white rounded-[32px] shadow-2xl border-4 border-slate-50 p-2 z-50">
+                  <div className="p-4 border-b flex justify-between items-center font-black text-[11px] uppercase tracking-widest text-slate-400">Ultimi Avvisi <button onClick={()=>setShowNotifPanel(false)}><X size={14}/></button></div>
+                  <div className="max-h-80 overflow-y-auto">
                     {notifications.length === 0 ? <p className="text-center py-10 text-xs text-slate-300 font-bold uppercase tracking-widest">Nessun avviso</p> : 
                       notifications.map(n => (
-                        <div key={n.id} onClick={async () => await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'notifications', n.id), { read: true })} className={`p-5 border-b last:border-none cursor-pointer hover:bg-slate-50 transition-colors ${!n.read ? 'bg-blue-50/50' : ''}`}><p className="text-xs font-black text-slate-800 uppercase tracking-tight leading-tight">{n.title}</p><p className="text-[10px] text-slate-500 mt-2 font-medium leading-relaxed">{n.message}</p></div>
+                        <div key={n.id} onClick={async () => await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'notifications', n.id), { read: true })} className={`p-5 border-b last:border-none cursor-pointer hover:bg-slate-50 transition-colors ${!n.read ? 'bg-blue-50/50' : ''}`}><p className="text-xs font-black text-slate-800 uppercase tracking-tight">{n.title}</p><p className="text-[10px] text-slate-500 mt-2">{n.message}</p></div>
                       ))
                     }
                   </div>
                 </div>
               )}
             </div>
-            <div className="hidden md:flex flex-col items-end">
-               <p className="text-sm font-black text-slate-800 uppercase tracking-tighter leading-none">{safeUserData.name}</p>
-               <p className="text-[9px] font-black text-green-500 uppercase tracking-widest mt-1">Online</p>
-            </div>
-            <button onClick={()=>signOut(auth)} className="p-3 bg-slate-50 rounded-2xl text-slate-300 hover:text-red-500 hover:bg-red-50 transition-all border border-slate-200"><LogOut size={20} /></button>
+            <button onClick={()=>signOut(auth)} className="p-3 bg-slate-50 rounded-2xl text-slate-300 hover:text-red-500 transition-all border border-slate-200"><LogOut size={20} /></button>
           </div>
       </header>
 
@@ -835,7 +923,7 @@ function DashboardContainer({ user, userData }) {
         ) : activeTab === 'vehicles' ? (
            <VehiclesView userData={safeUserData} isAdmin={isAdmin} isMaster={isMaster} />
         ) : activeTab === 'reports' ? (
-           <DailyReportsView userData={safeUserData} />
+           <DailyReportsView userData={safeUserData} tasks={allTasks} />
         ) : activeTab === 'materials' ? (
           <MaterialsView />
         ) : (
