@@ -28,7 +28,7 @@ import {
 import { 
   Activity, Plus, Trash2, CheckCircle, LogOut, Loader2, User, Lock, 
   LayoutDashboard, ShieldCheck, Package, Wrench, Euro, ClipboardList, 
-  Building2, FileText, ArrowLeft, Camera, Image as ImageIcon, Calculator, HardHat, 
+  Building2, FileText, ArrowLeft, Camera, Image, Calculator, HardHat, 
   Edit2, Save, X, Calendar, Clock, Briefcase, ShoppingCart, CheckSquare, 
   Users, FileCheck, Download, CalendarRange, Bell, UserCheck, FileUp, 
   Maximize2, Truck, AlertTriangle, PenTool, MessageSquare, MapPin, 
@@ -47,9 +47,9 @@ const firebaseConfig = {
   measurementId: "G-N8KSTTS8ET"
 };
 
-const firebaseApp = initializeApp(firebaseConfig);
-const auth = getAuth(firebaseApp);
-const db = getFirestore(firebaseApp);
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
 
 const APP_ID = typeof __app_id !== 'undefined' ? __app_id : 'impresadaria-v1';
 const STANDARD_HOURLY_RATE = 30.00;
@@ -65,6 +65,7 @@ const STATIC_VEHICLES = [
   "Iveco Daily 2"
 ];
 
+// --- CONFIGURAZIONE UTENTI ---
 const USERS_CONFIG = {
   'a.cusimano': { role: 'Master', access: 'full', name: 'Andrea Cusimano' },
   'f.gentile': { role: 'Master', access: 'full', name: 'Francesco Gentile' },
@@ -78,13 +79,7 @@ const USERS_CONFIG = {
   'c.tardiota': { role: 'Dipendente', name: 'Carmine Tardiota' }
 };
 
-// --- HELPERS ---
-const formatTimestamp = (timestamp) => {
-  if (!timestamp || !timestamp.seconds) return '-';
-  return new Date(timestamp.seconds * 1000).toLocaleDateString('it-IT', {
-    day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
-  });
-};
+// --- HELPERS DI SISTEMA ---
 
 async function logOperation(userData, action, details) {
   let location = "N/D";
@@ -100,7 +95,7 @@ async function logOperation(userData, action, details) {
       userName: userData?.name || 'Utente', 
       action, 
       details: String(details), 
-      location,
+      location, 
       createdAt: serverTimestamp()
     });
   } catch (e) {}
@@ -108,9 +103,9 @@ async function logOperation(userData, action, details) {
 
 function LoadingScreen() {
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50 text-slate-400">
+    <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50 text-slate-500">
       <Loader2 className="w-10 h-10 animate-spin text-blue-600 mb-4" />
-      <p className="text-xs font-black uppercase tracking-widest">Caricamento...</p>
+      <p className="font-bold text-xs uppercase tracking-widest animate-pulse">Sincronizzazione Sistema...</p>
     </div>
   );
 }
@@ -164,7 +159,7 @@ function ReportModal({ report, onClose, canDelete }) {
 
 function SiteOverview({ task, isMaster, isAdmin, userData }) {
   const [stats, setStats] = useState({ mat: 0, hrs: 0, travel: 0 });
-  const next = task.schedule?.find(p => new Date(p.end) >= new Date());
+  const nextPhase = task.schedule?.find(p => new Date(p.end) >= new Date());
 
   useEffect(() => {
     if (!task?.id) return;
@@ -178,14 +173,14 @@ function SiteOverview({ task, isMaster, isAdmin, userData }) {
     return () => { unsubM(); unsubL(); };
   }, [task.id]);
 
-  const toggleStatus = async () => {
-    const status = !task.completed;
-    if (status && !window.confirm("Chiudere il cantiere?")) return;
-    if (!status && !isAdmin) return;
+  const handleToggleStatus = async () => {
+    const newStatus = !task.completed;
+    if (newStatus && !window.confirm("Chiudere il cantiere? Tutte le attività saranno bloccate.")) return;
+    if (!newStatus && !isAdmin) return;
     try {
-      await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'tasks', task.id), { completed: status });
-      await logOperation(userData, status ? "Chiusura" : "Riapertura", task.title);
-    } catch (e) { alert("Errore aggiornamento stato"); }
+      await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'tasks', task.id), { completed: newStatus });
+      await logOperation(userData, newStatus ? "Chiusura Cantiere" : "Riapertura Cantiere", task.title);
+    } catch (e) { alert("Errore"); }
   };
 
   const toggleTravelSite = async () => {
@@ -195,22 +190,30 @@ function SiteOverview({ task, isMaster, isAdmin, userData }) {
 
   return (
     <div className="space-y-6">
-      <div className={`p-6 rounded-[32px] border flex justify-between items-center ${task.completed ? 'bg-slate-900 border-slate-800 text-white shadow-xl' : 'bg-white border-slate-200 shadow-sm'}`}>
+      <div className={`p-6 rounded-[32px] border flex flex-col sm:flex-row justify-between items-center gap-4 ${task.completed ? 'bg-slate-900 border-slate-800 text-white shadow-xl' : 'bg-white border-slate-200 shadow-sm'}`}>
         <div className="flex items-center gap-4">
-          <div className={`p-3 rounded-2xl ${task.completed ? 'bg-slate-800 text-green-400' : 'bg-blue-50 text-blue-600'}`}>{task.completed ? <LockKeyhole/> : <Activity/>}</div>
-          <div><h4 className="font-black uppercase text-[10px] tracking-widest">Stato</h4><p className="text-sm font-bold">{task.completed ? 'CHIUSO' : 'OPERATIVO'}</p></div>
+          <div className={`p-3 rounded-2xl ${task.completed ? 'bg-slate-800 text-green-400' : 'bg-blue-50 text-blue-600'}`}>{task.completed ? <LockKeyhole size={24}/> : <Activity size={24}/>}</div>
+          <div>
+            <h4 className="font-black uppercase tracking-tighter">Stato Operativo</h4>
+            <p className={`text-xs font-bold ${task.completed ? 'text-slate-400' : 'text-blue-500'}`}>{task.completed ? 'CHIUSO / ARCHIVIATO' : 'CANTIERE IN CORSO'}</p>
+          </div>
         </div>
         {isMaster && (
-          <button onClick={toggleStatus} className={`px-6 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-lg ${task.completed ? 'bg-blue-600' : 'bg-red-600'} text-white`}>
-            {task.completed ? 'Riapri' : 'Chiudi'}
-          </button>
+          <div className="flex gap-2 w-full sm:w-auto">
+            {!task.completed ? (
+              <button onClick={handleToggleStatus} className="w-full sm:w-auto bg-red-600 text-white px-6 py-3 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg">Chiudi Cantiere</button>
+            ) : isAdmin && (
+              <button onClick={handleToggleStatus} className="w-full sm:w-auto bg-blue-600 text-white px-6 py-3 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg">Riapri Cantiere</button>
+            )}
+          </div>
         )}
       </div>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-white p-5 rounded-3xl border text-center shadow-sm"><p className="text-[9px] font-black text-slate-400 uppercase mb-1">Ore</p><p className="text-xl font-black text-slate-800">{stats.hrs} H</p></div>
-        <div className="bg-white p-5 rounded-3xl border text-center shadow-sm"><p className="text-[9px] font-black text-slate-400 uppercase mb-1">Materiali</p><p className="text-xl font-black text-slate-800">€ {stats.mat.toFixed(0)}</p></div>
-        <div className="bg-white p-5 rounded-3xl border text-center shadow-sm"><p className="text-[9px] font-black text-slate-400 uppercase mb-1">Trasferte</p><p className="text-xl font-black text-orange-500">{stats.travel}</p></div>
-        <div className="bg-slate-50 p-5 rounded-3xl border text-center"><p className="text-[9px] font-black text-slate-400 uppercase mb-1">Zona</p><p className="text-xs font-bold truncate uppercase">{task.isTrasfertaSite ? 'Fuori Sede' : 'Locale'}</p>{isAdmin && !task.completed && <button onClick={toggleTravelSite} className="text-[9px] text-blue-500 font-bold mt-1 underline">CAMBIA</button>}</div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-white p-5 rounded-3xl border shadow-sm"><p className="text-[9px] font-black text-slate-400 uppercase mb-1">Ore Lavorate</p><p className="text-xl font-black text-slate-800">{stats.hrs} H</p></div>
+        <div className="bg-white p-5 rounded-3xl border shadow-sm"><p className="text-[9px] font-black text-slate-400 uppercase mb-1">Costo Forniture</p><p className="text-xl font-black text-slate-800">€ {stats.mat.toFixed(0)}</p></div>
+        <div className="bg-white p-5 rounded-3xl border shadow-sm"><p className="text-[9px] font-black text-slate-400 uppercase mb-1">Trasferte</p><p className="text-xl font-black text-orange-600">{totals.travel}</p></div>
+        <div className="bg-slate-50 p-5 rounded-3xl border border-slate-200"><p className="text-[9px] font-black text-slate-400 uppercase mb-1">Status Location</p><p className="text-sm font-black text-slate-600 uppercase">{task.isTrasfertaSite ? 'Fuori Sede' : 'Locale'}</p><button onClick={toggleTravelSite} className="text-[9px] text-blue-500 font-bold mt-2 hover:underline">{isAdmin && !task.completed ? 'MODIFICA' : ''}</button></div>
       </div>
     </div>
   );
@@ -221,16 +224,18 @@ function SiteReportsList({ taskId, isMaster, userData, isAdminFull }) {
   const [selected, setSelected] = useState(null);
 
   useEffect(() => {
-    const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'daily_reports'), where('taskId', '==', taskId), orderBy('createdAt', 'desc'));
+    // FIX: Rimosso orderBy per evitare necessità di indice composto. Ordinamento lato client.
+    const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'daily_reports'), where('taskId', '==', taskId));
     return onSnapshot(q, (snap) => {
-      const all = snap.docs.map(d => ({id: d.id, ...d.data()}));
+      const all = snap.docs.map(d => ({id: d.id, ...d.data()}))
+        .sort((a,b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)); // Ordinamento in memoria
       setReports(isMaster ? all : all.filter(r => r.userName === userData.name));
     });
   }, [taskId, isMaster, userData?.name]);
 
   return (
     <div className="space-y-4 animate-in fade-in">
-      {reports.length === 0 && <p className="text-center py-20 text-slate-300 font-black uppercase text-[10px]">Nessun rapporto</p>}
+      {reports.length === 0 && <p className="text-center py-20 text-slate-300 font-black uppercase text-[10px]">Nessun rapporto trovato</p>}
       {reports.map(r => (
         <div key={r.id} onClick={()=>setSelected(r)} className="p-6 bg-white border rounded-[36px] flex justify-between items-center shadow-sm cursor-pointer hover:border-blue-300 transition-all border-slate-100 group">
           <div className="flex-1 min-w-0 pr-4">
@@ -253,66 +258,176 @@ function SiteChat({ taskId, userData, isClosed }) {
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
   const scrollRef = useRef(null);
+
   useEffect(() => {
-    const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'site_chats'), where('taskId', '==', taskId), orderBy('createdAt', 'asc'));
+    // FIX: Rimosso orderBy per evitare necessità di indice composto. Ordinamento lato client.
+    const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'site_chats'), where('taskId', '==', taskId));
     return onSnapshot(q, (snap) => {
-      setMessages(snap.docs.map(d => ({id: d.id, ...d.data()})));
+      const msgs = snap.docs.map(d => ({id: d.id, ...d.data()})).sort((a,b) => (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0));
+      setMessages(msgs);
       if(scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     });
   }, [taskId]);
+
   const sendMessage = async (e) => {
-    e.preventDefault(); if(isClosed || !newMessage.trim()) return;
-    await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'site_chats'), { taskId, userId: userData.uid, userName: userData.name, message: newMessage, createdAt: serverTimestamp() });
+    e.preventDefault();
+    if(isClosed || !newMessage.trim()) return;
+    await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'site_chats'), {
+      taskId, userId: userData.uid, userName: userData.name, message: newMessage, createdAt: serverTimestamp()
+    });
     setNewMessage('');
   };
+
   return (
-    <div className="flex flex-col h-[450px] bg-white rounded-[40px] border overflow-hidden shadow-sm">
-      <div className="flex-1 p-6 overflow-y-auto bg-slate-50 space-y-4" ref={scrollRef}>{messages.map(msg => (<div key={msg.id} className={`flex flex-col ${msg.userId === userData.uid ? 'items-end' : 'items-start'}`}><div className={`max-w-[85%] px-4 py-2 rounded-2xl text-sm ${msg.userId === userData.uid ? 'bg-blue-600 text-white rounded-br-none' : 'bg-white border text-slate-800 rounded-bl-none shadow-sm'}`}>{msg.userId !== userData.uid && <p className="text-[10px] font-black text-blue-600 mb-1 uppercase">{msg.userName}</p>}{msg.message}</div></div>))}</div>
-      {!isClosed ? <form onSubmit={sendMessage} className="p-4 bg-white border-t flex gap-2"><input className="flex-1 bg-slate-100 border-none rounded-xl px-4 py-2 text-sm outline-none font-bold" placeholder="Messaggio..." value={newMessage} onChange={e=>setNewMessage(e.target.value)} /><button type="submit" className="bg-blue-600 text-white p-3 rounded-2xl active:scale-90 transition-transform"><Send size={20}/></button></form> : <div className="p-4 text-center text-[10px] font-black uppercase text-slate-400 border-t tracking-widest">Cantiere Chiuso</div>}
+    <div className="flex flex-col h-[400px] bg-white rounded-3xl border overflow-hidden shadow-sm">
+      <div className="flex-1 p-4 overflow-y-auto bg-slate-50 space-y-4" ref={scrollRef}>
+        {messages.map(msg => (
+          <div key={msg.id} className={`flex flex-col ${msg.userId === userData.uid ? 'items-end' : 'items-start'}`}>
+            <div className={`max-w-[85%] px-4 py-2 rounded-2xl text-sm ${msg.userId === userData.uid ? 'bg-blue-600 text-white rounded-br-none' : 'bg-white border text-slate-800 rounded-bl-none shadow-sm'}`}>
+              {msg.userId !== userData.uid && <p className="text-[10px] font-black text-blue-600 mb-1 uppercase">{msg.userName}</p>}
+              {msg.message}
+            </div>
+          </div>
+        ))}
+      </div>
+      {!isClosed ? (
+        <form onSubmit={sendMessage} className="p-3 bg-white border-t flex gap-2">
+          <input className="flex-1 bg-slate-100 border-none rounded-xl px-4 py-2 text-sm outline-none" placeholder="Messaggio..." value={newMessage} onChange={e=>setNewMessage(e.target.value)} />
+          <button type="submit" className="bg-blue-600 text-white p-2 rounded-xl active:scale-90 transition-transform"><Send size={18}/></button>
+        </form>
+      ) : <div className="p-4 text-center text-xs text-slate-400 font-bold uppercase border-t">Cantiere Chiuso</div>}
     </div>
   );
 }
 
-function SiteTeam({ task, isAdminFull }) {
+function SiteTeam({ task, isAdmin }) {
   const [assigned, setAssigned] = useState(task.assignedTeam || []);
   const [selectedUser, setSelectedUser] = useState('');
   const allStaff = Object.values(USERS_CONFIG);
+
   useEffect(() => { setAssigned(task.assignedTeam || []); }, [task.assignedTeam]);
-  const handleAssign = async () => { if(!selectedUser || !isAdminFull || task.completed) return; await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'tasks', task.id), { assignedTeam: arrayUnion(selectedUser) }); setSelectedUser(''); };
+
+  const handleAssign = async () => {
+    if(!selectedUser || !isAdmin || task.completed) return;
+    await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'tasks', task.id), { assignedTeam: arrayUnion(selectedUser) });
+    setSelectedUser('');
+  };
+
   return (
     <div className="space-y-4">
-      {isAdminFull && !task.completed && <div className="flex gap-2"><select value={selectedUser} onChange={e=>setSelectedUser(e.target.value)} className="flex-1 border rounded-xl p-3 text-sm font-bold bg-white outline-none"><option value="">-- Seleziona --</option>{allStaff.map(u => <option key={u.name} value={u.name} disabled={assigned.includes(u.name)}>{u.name} ({u.role})</option>)}</select><button onClick={handleAssign} className="bg-blue-600 text-white px-8 rounded-2xl font-black text-xs uppercase shadow-lg shadow-blue-100">Aggiungi</button></div>}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">{assigned.map(name => { const staff = allStaff.find(u => u.name === name); return (<div key={name} className="p-4 bg-white border rounded-[28px] flex justify-between items-center shadow-sm border-slate-100"><div className="flex items-center gap-4"><div className={`w-10 h-10 rounded-2xl flex items-center justify-center font-black text-sm ${staff?.role === 'Master' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>{name.charAt(0)}</div><span className="text-sm font-black text-slate-800 uppercase tracking-tighter">{name}</span></div>{isAdminFull && !task.completed && <button onClick={async () => await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'tasks', task.id), { assignedTeam: arrayRemove(name) })} className="text-red-400 hover:bg-red-50 p-2 rounded-xl transition-colors"><X size={18}/></button>}</div>); })}</div>
+      {isAdmin && !task.completed && (
+        <div className="flex gap-2">
+          <select value={selectedUser} onChange={e=>setSelectedUser(e.target.value)} className="flex-1 border rounded-xl p-3 text-sm font-bold bg-white outline-none">
+            <option value="">-- Seleziona Personale --</option>
+            {allStaff.map(u => <option key={u.name} value={u.name} disabled={assigned.includes(u.name)}>{u.name} ({u.role})</option>)}
+          </select>
+          <button onClick={handleAssign} className="bg-blue-600 text-white px-8 rounded-2xl font-black text-xs uppercase shadow-lg">Aggiungi</button>
+        </div>
+      )}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        {assigned.map(name => {
+          const staff = allStaff.find(u => u.name === name);
+          return (
+            <div key={name} className="p-4 bg-white border rounded-[28px] flex justify-between items-center shadow-sm border-slate-100">
+              <div className="flex items-center gap-4">
+                <div className={`w-10 h-10 rounded-2xl flex items-center justify-center font-black text-sm ${staff?.role === 'Master' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
+                  {name.charAt(0)}
+                </div>
+                <span className="text-sm font-black text-slate-800 uppercase tracking-tighter">{name}</span>
+              </div>
+              {isAdmin && !task.completed && <button onClick={async () => await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'tasks', task.id), { assignedTeam: arrayRemove(name) })} className="text-red-400 hover:bg-red-50 p-2 rounded-xl transition-colors"><X size={18}/></button>}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
 
-function SiteDocuments({ taskId, isAdminFull, userData, isClosed }) {
+function SiteDocuments({ taskId, isAdmin, userData, isClosed }) {
   const [docs, setDocs] = useState([]);
   const [uploading, setUploading] = useState(false);
-  useEffect(() => { const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'documents'), where('taskId', '==', taskId)); return onSnapshot(q, (snap) => setDocs(snap.docs.map(d => ({id: d.id, ...d.data()})))); }, [taskId]);
-  const handleUpload = async (e) => { if(isClosed) return; const file = e.target.files[0]; if(!file) return; setUploading(true); const reader = new FileReader(); reader.onloadend = async () => { await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'documents'), { taskId, name: file.name, data: reader.result, uploadedBy: userData.name, createdAt: serverTimestamp() }); setUploading(false); }; reader.readAsDataURL(file); };
+  useEffect(() => {
+    const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'documents'), where('taskId', '==', taskId));
+    return onSnapshot(q, (snap) => setDocs(snap.docs.map(d => ({id: d.id, ...d.data()}))));
+  }, [taskId]);
+  const handleUpload = async (e) => {
+    if(isClosed) return;
+    const file = e.target.files[0]; if(!file) return;
+    setUploading(true);
+    const reader = new FileReader();
+    reader.onloadend = async () => {
+      await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'documents'), {
+        taskId, name: file.name, data: reader.result, uploadedBy: userData.name, createdAt: serverTimestamp()
+      });
+      setUploading(false);
+    };
+    reader.readAsDataURL(file);
+  };
   return (
-    <div className="space-y-4">{isAdminFull && !isClosed && <div className="bg-white p-5 rounded-[32px] border border-dashed border-slate-300 flex justify-between items-center"><p className="text-xs font-black text-slate-500 uppercase tracking-widest">Carica File</p><input type="file" onChange={handleUpload} className="text-xs" /></div>}<div className="grid gap-3">{docs.map(d => (<div key={d.id} className="flex items-center justify-between p-5 bg-white border rounded-[28px] shadow-sm"><div className="flex items-center gap-4"><FileText className="text-blue-500" size={18}/><span className="text-sm font-black uppercase tracking-tighter">{d.name}</span></div><a href={d.data} download={d.name} className="p-3 bg-slate-50 hover:bg-blue-600 hover:text-white rounded-2xl transition-all"><Download size={20}/></a></div>))}</div></div>
+    <div className="space-y-4">
+      {isAdmin && !isClosed && <div className="bg-white p-5 rounded-[32px] border border-dashed border-slate-300 flex justify-between items-center"><p className="text-xs font-black text-slate-500 uppercase tracking-widest">Carica File</p><input type="file" onChange={handleUpload} className="text-xs" /></div>}
+      <div className="grid gap-3">
+        {docs.map(d => (
+          <div key={d.id} className="flex items-center justify-between p-5 bg-white border rounded-[28px] shadow-sm"><div className="flex items-center gap-4"><FileText className="text-blue-500" size={18}/><span className="text-sm font-black uppercase tracking-tighter">{d.name}</span></div><a href={d.data} download={d.name} className="p-3 bg-slate-50 hover:bg-blue-600 hover:text-white rounded-2xl transition-all"><Download size={20}/></a></div>
+        ))}
+      </div>
+    </div>
   );
 }
 
-function SiteSchedule({ task, isAdminFull }) {
+function SiteSchedule({ task, isAdmin }) {
   const [schedule, setSchedule] = useState(task.schedule || []);
   const [newPhase, setNewPhase] = useState({ name: '', start: '', end: '' });
   useEffect(() => { setSchedule(task.schedule || []); }, [task.schedule]);
-  const addPhase = async (e) => { e.preventDefault(); if(!isAdminFull || !newPhase.name || task.completed) return; const updated = [...schedule, newPhase].sort((a,b) => new Date(a.start) - new Date(b.start)); await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'tasks', task.id), { schedule: updated }); setNewPhase({ name: '', start: '', end: '' }); };
+  const addPhase = async (e) => {
+    e.preventDefault(); if(!isAdmin || !newPhase.name || !newPhase.start || !newPhase.end || task.completed) return;
+    const updated = [...schedule, newPhase].sort((a,b) => new Date(a.start) - new Date(b.start));
+    await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'tasks', task.id), { schedule: updated });
+    setNewPhase({ name: '', start: '', end: '' });
+  };
   return (
-    <div className="space-y-4">{isAdminFull && !task.completed && <form onSubmit={addPhase} className="bg-white p-5 rounded-[32px] border grid grid-cols-1 md:grid-cols-4 gap-4 shadow-sm"><input placeholder="Fase" className="bg-slate-50 border-none rounded-2xl p-4 font-bold text-sm outline-none shadow-inner" value={newPhase.name} onChange={e=>setNewPhase({...newPhase, name: e.target.value})} /><input type="date" className="bg-slate-50 border-none rounded-2xl p-4 font-bold text-sm outline-none shadow-inner" value={newPhase.start} onChange={e=>setNewPhase({...newPhase, start: e.target.value})} /><input type="date" className="bg-slate-50 border-none rounded-2xl p-4 font-bold text-sm outline-none shadow-inner" value={newPhase.end} onChange={e=>setNewPhase({...newPhase, end: e.target.value})} /><button type="submit" className="bg-blue-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg">Salva</button></form>}<div className="space-y-3">{schedule.map((p, i) => (<div key={i} className="p-5 bg-white border rounded-[32px] flex justify-between items-center shadow-sm relative overflow-hidden"><div className="absolute left-0 top-0 bottom-0 w-1.5 bg-blue-500"></div><div><p className="font-black text-slate-800 uppercase tracking-tighter">{String(p.name)}</p><p className="text-[10px] font-black text-slate-400 mt-1 uppercase tracking-widest">{p.start} — {p.end}</p></div></div>))}</div></div>
+    <div className="space-y-4">
+      {isAdmin && !task.completed && (
+        <form onSubmit={addPhase} className="bg-white p-5 rounded-[32px] border grid grid-cols-1 md:grid-cols-4 gap-4 shadow-sm">
+          <input placeholder="Fase" className="bg-slate-50 border-none rounded-2xl p-4 font-bold text-sm outline-none shadow-inner" value={newPhase.name} onChange={e=>setNewPhase({...newPhase, name: e.target.value})} />
+          <input type="date" className="bg-slate-50 border-none rounded-2xl p-4 font-bold text-sm outline-none shadow-inner" value={newPhase.start} onChange={e=>setNewPhase({...newPhase, start: e.target.value})} />
+          <input type="date" className="bg-slate-50 border-none rounded-2xl p-4 font-bold text-sm outline-none shadow-inner" value={newPhase.end} onChange={e=>setNewPhase({...newPhase, end: e.target.value})} />
+          <button type="submit" className="bg-blue-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg">Salva</button>
+        </form>
+      )}
+      <div className="space-y-3">
+        {schedule.map((p, i) => (
+          <div key={i} className="p-5 bg-white border rounded-[32px] flex justify-between items-center shadow-sm relative overflow-hidden">
+            <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-blue-500"></div>
+            <div><p className="font-black text-slate-800 uppercase tracking-tighter">{String(p.name)}</p><p className="text-[10px] font-black text-slate-400 mt-1 uppercase tracking-widest">{new Date(p.start).toLocaleDateString()} — {new Date(p.end).toLocaleDateString()}</p></div>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
-function SitePhotos({ taskId, userData, isAdminFull, isClosed }) {
+function SitePhotos({ taskId, userData, isAdmin, isClosed }) {
   const [photos, setPhotos] = useState([]); const [uploading, setUploading] = useState(false); const [lightbox, setLightbox] = useState(null);
   useEffect(() => { const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'photos'), where('taskId', '==', taskId)); return onSnapshot(q, (snap) => setPhotos(snap.docs.map(d => ({id: d.id, ...d.data()})))); }, [taskId]);
   const handleUpload = async (e) => { if(isClosed) return; const file = e.target.files[0]; if(!file) return; setUploading(true); const reader = new FileReader(); reader.onloadend = async () => { await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'photos'), { taskId, imageData: reader.result, uploaderName: userData.name, createdAt: serverTimestamp(), userId: userData.uid }); setUploading(false); }; reader.readAsDataURL(file); };
   return (
-    <div className="space-y-6"><div className="flex justify-between items-center bg-white p-5 rounded-[32px] border shadow-sm"><h3 className="font-black text-slate-800 uppercase tracking-tighter">Album Fotografico</h3>{!isClosed && <input type="file" onChange={handleUpload} className="text-xs font-bold" accept="image/*" />}</div><div className="grid grid-cols-2 sm:grid-cols-4 gap-4">{photos.map(p => (<div key={p.id} onClick={() => setLightbox(p.imageData)} className="aspect-square bg-slate-100 rounded-[32px] overflow-hidden cursor-pointer border-4 border-white shadow-sm hover:scale-105 transition-all relative group"><img src={p.imageData} className="w-full h-full object-cover" alt="Site" /><div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity"><Maximize2 className="text-white"/></div></div>))}</div>{lightbox && <div className="fixed inset-0 bg-black/95 z-50 flex items-center justify-center p-4 animate-in fade-in" onClick={()=>setLightbox(null)}><button className="absolute top-6 right-6 text-white"><X size={32}/></button><img src={lightbox} className="max-w-full max-h-full rounded-lg shadow-2xl object-contain" alt="Fullscreen" /></div>}</div>
+    <div className="space-y-6">
+      <div className="flex justify-between items-center bg-white p-5 rounded-[32px] border shadow-sm">
+        <h3 className="font-black text-slate-800 uppercase tracking-tighter">Album Fotografico</h3>
+        {!isClosed && <input type="file" onChange={handleUpload} className="text-xs font-bold" accept="image/*" />}
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        {photos.map(p => (
+          <div key={p.id} onClick={() => setLightbox(p.imageData)} className="aspect-square bg-slate-100 rounded-[32px] overflow-hidden cursor-pointer border-4 border-white shadow-sm hover:scale-105 transition-all relative group">
+            <img src={p.imageData} className="w-full h-full object-cover" alt="Site" />
+            <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity"><Maximize2 className="text-white"/></div>
+          </div>
+        ))}
+      </div>
+      {lightbox && <div className="fixed inset-0 bg-black/95 z-50 flex items-center justify-center p-4 animate-in fade-in" onClick={()=>setLightbox(null)}><button className="absolute top-6 right-6 text-white"><X size={32}/></button><img src={lightbox} className="max-w-full max-h-full rounded-lg shadow-2xl object-contain" alt="Fullscreen" /></div>}
+    </div>
   );
 }
 
@@ -321,7 +436,14 @@ function MaterialRequestsView({ taskId, userData, isClosed }) {
   useEffect(() => { const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'material_requests'), where('taskId', '==', taskId)); return onSnapshot(q, (snap) => setRequests(snap.docs.map(d => ({id: d.id, ...d.data()})))); }, [taskId]);
   const add = async (e) => { e.preventDefault(); if(isClosed || !item.trim()) return; await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'material_requests'), { taskId, item, status: 'pending', userName: userData.name, createdAt: serverTimestamp() }); setItem(''); };
   return (
-    <div className="space-y-4">{!isClosed && <form onSubmit={add} className="flex gap-2 bg-white p-3 rounded-[32px] border shadow-sm"><input value={item} onChange={e=>setItem(e.target.value)} placeholder="Di cosa hai bisogno?" className="flex-1 bg-transparent px-4 py-1 outline-none text-sm font-bold" /><button className="bg-blue-600 text-white px-8 py-3 rounded-2xl font-black text-xs uppercase shadow-lg">Invia</button></form>}<div className="space-y-3">{requests.map(r => (<div key={r.id} className="p-5 bg-white border rounded-[32px] flex justify-between items-center shadow-sm"><div><p className="text-sm font-black text-slate-800 uppercase tracking-tighter leading-none">{r.item}</p><p className="text-[10px] text-slate-400 mt-2 uppercase font-black tracking-widest">Dip: {r.userName}</p></div><span className={`text-[9px] font-black px-4 py-1 rounded-lg ${r.status === 'pending' ? 'bg-yellow-50 text-yellow-600 border border-yellow-100' : 'bg-green-50 text-green-600 border border-green-100'}`}>{r.status.toUpperCase()}</span></div>))}</div></div>
+    <div className="space-y-4">
+      {!isClosed && <form onSubmit={add} className="flex gap-2 bg-white p-3 rounded-[32px] border shadow-sm"><input value={item} onChange={e=>setItem(e.target.value)} placeholder="Di cosa hai bisogno?" className="flex-1 bg-transparent px-4 py-1 outline-none text-sm font-bold" /><button className="bg-blue-600 text-white px-8 py-3 rounded-2xl font-black text-xs uppercase shadow-lg">Invia</button></form>}
+      <div className="space-y-3">
+        {requests.map(r => (
+          <div key={r.id} className="p-5 bg-white border rounded-[32px] flex justify-between items-center shadow-sm"><div><p className="text-sm font-black text-slate-800 uppercase tracking-tighter leading-none">{r.item}</p><p className="text-[10px] text-slate-400 mt-2 uppercase font-black tracking-widest">Dip: {r.userName}</p></div><span className={`text-[9px] font-black px-4 py-1 rounded-lg ${r.status === 'pending' ? 'bg-yellow-50 text-yellow-600 border border-yellow-100' : 'bg-green-50 text-green-600 border border-green-100'}`}>{r.status.toUpperCase()}</span></div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -344,10 +466,10 @@ function SiteAccounting({ taskId }) {
 
 // --- VISTE TAB PRINCIPALI ---
 
-function TasksView({ userData, isAdminFull, onSelectTask }) {
+function TasksView({ userData, isAdmin, onSelectTask }) {
   const [tasks, setTasks] = useState([]);
   const [isFormOpen, setIsFormOpen] = useState(false);
-  const [newTask, setNewTask] = useState({ title: '', client: '', isTrasfertaSite: false });
+  const [newTask, setNewTask] = useState({ title: '', client: '', description: '', isTrasfertaSite: false });
 
   useEffect(() => {
     return onSnapshot(collection(db, 'artifacts', APP_ID, 'public', 'data', 'tasks'), (snap) => {
@@ -357,10 +479,10 @@ function TasksView({ userData, isAdminFull, onSelectTask }) {
 
   const addTask = async (e) => {
     e.preventDefault();
-    if(!isAdminFull) return;
+    if(!isAdmin) return;
     await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'tasks'), { ...newTask, completed: false, createdAt: serverTimestamp(), authorName: userData.name });
     setIsFormOpen(false);
-    setNewTask({title:'', client:'', isTrasfertaSite:false});
+    setNewTask({title:'', client:'', description:'', isTrasfertaSite: false});
     await logOperation(userData, "Crea Cantiere", newTask.title);
   };
 
@@ -368,13 +490,13 @@ function TasksView({ userData, isAdminFull, onSelectTask }) {
     <div className="space-y-8">
       <div className="flex justify-between items-center">
          <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tighter">Bacheca Cantieri</h2>
-         {isAdminFull && !isFormOpen && <button onClick={()=>setIsFormOpen(true)} className="bg-blue-600 text-white px-6 py-3 rounded-2xl shadow-xl font-black text-xs uppercase tracking-widest hover:scale-105 transition-transform"><Plus size={18}/> Nuovo</button>}
+         {isAdmin && !isFormOpen && <button onClick={()=>setIsFormOpen(true)} className="bg-blue-600 text-white px-6 py-3 rounded-2xl shadow-xl font-black text-xs uppercase tracking-widest hover:scale-105 transition-transform"><Plus size={18}/> Registra Nuovo</button>}
       </div>
       {isFormOpen && (
         <form onSubmit={addTask} className="bg-white p-10 rounded-[40px] border shadow-2xl space-y-5 animate-in slide-in-from-top-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <input placeholder="Titolo Cantiere" className="bg-slate-50 border-none rounded-2xl p-5 outline-none font-bold text-lg" onChange={e=>setNewTask({...newTask, title: e.target.value})} required />
-            <input placeholder="Cliente" className="bg-slate-50 border-none rounded-2xl p-5 outline-none font-bold text-lg" onChange={e=>setNewTask({...newTask, client: e.target.value})} required />
+            <input placeholder="Titolo Cantiere" className="bg-slate-50 border-none rounded-2xl p-5 outline-none font-bold" onChange={e=>setNewTask({...newTask, title: e.target.value})} required />
+            <input placeholder="Cliente" className="bg-slate-50 border-none rounded-2xl p-5 outline-none font-bold" onChange={e=>setNewTask({...newTask, client: e.target.value})} required />
           </div>
           <div className="flex items-center gap-3 bg-slate-50 p-4 rounded-2xl shadow-inner">
              <input type="checkbox" className="w-5 h-5 accent-blue-600" onChange={e=>setNewTask({...newTask, isTrasfertaSite: e.target.checked})} />
@@ -430,8 +552,8 @@ function DailyReportsView({ userData, tasks, isMaster, isAdminFull }) {
           <input type="date" value={form.reportDate} onChange={e=>setForm({...form, reportDate: e.target.value})} className="bg-slate-50 border-none rounded-2xl p-4 font-bold text-sm shadow-inner outline-none" required />
         </div>
         <div className="grid grid-cols-2 gap-4">
-           <input type="number" step="0.5" placeholder="Ore" value={form.hours} onChange={e=>setForm({...form, hours: e.target.value})} className="flex-1 bg-slate-50 rounded-2xl p-5 font-bold text-sm border-none shadow-inner outline-none" required />
-           <select value={form.vehicleId} onChange={e=>setForm({...form, vehicleId: e.target.value})} className="flex-1 bg-slate-50 border-none rounded-2xl p-5 outline-none font-bold text-sm shadow-inner" required>{STATIC_VEHICLES.map(v => <option key={v} value={v}>{v}</option>)}</select>
+           <input type="number" step="0.5" placeholder="Ore" value={form.hours} onChange={e=>setForm({...form, hours: e.target.value})} className="flex-1 bg-slate-50 rounded-3xl p-5 font-bold text-sm border-none shadow-inner outline-none" required />
+           <select value={form.vehicleId} onChange={e=>setForm({...form, vehicleId: e.target.value})} className="flex-1 bg-slate-50 border-none rounded-3xl p-5 outline-none font-bold text-sm shadow-inner" required>{STATIC_VEHICLES.map(v => <option key={v} value={v}>{v}</option>)}</select>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
            <div className="bg-slate-50 rounded-2xl p-2 px-4 shadow-inner flex items-center gap-3"><Fuel size={18} className="text-slate-400"/><input type="number" placeholder="Carburante €" value={form.fuelAmount} onChange={e=>setForm({...form, fuelAmount: e.target.value})} className="bg-transparent border-none outline-none font-bold text-sm w-full" /></div>
@@ -472,7 +594,7 @@ function MaterialsView({ context = 'warehouse', taskId = null }) {
   );
 }
 
-function PersonalAreaView({ user, userData, isMaster, isAdminFull }) {
+function PersonalAreaView({ user, userData, isMaster, isAdmin }) {
   const [sub, setSub] = useState('leaves');
   const [targetUser, setTargetUser] = useState(user.uid); 
   const [usersList, setUsersList] = useState([]);
@@ -491,9 +613,9 @@ function PersonalAreaView({ user, userData, isMaster, isAdminFull }) {
          <div className="flex items-center gap-5 w-full sm:w-auto"><div className="w-16 h-16 bg-blue-600 rounded-3xl flex items-center justify-center text-white text-2xl font-black shadow-xl uppercase">{userData?.name?.charAt(0)}</div><div className="flex-1 overflow-hidden"><h2 className="text-2xl font-black text-slate-800 tracking-tighter uppercase truncate leading-none">{userData?.name}</h2>{isMaster && <select className="mt-3 text-[10px] font-black uppercase tracking-widest text-blue-600 bg-blue-50 border-none rounded-xl p-2 outline-none cursor-pointer w-full shadow-inner" value={targetUser} onChange={(e) => setTargetUser(e.target.value)}><option value={user.uid}>Mio Profilo Personale</option>{usersList.map(u => (<option key={u.username} value={u.username}>Vedi: {u.name}</option>))}</select>}</div></div>
          <div className="flex gap-4 w-full sm:w-auto overflow-x-auto scrollbar-hide"><button onClick={()=>setSub('leaves')} className={`flex-1 sm:px-6 py-2 text-xs font-black uppercase tracking-widest transition-all ${sub === 'leaves' ? 'bg-blue-600 text-white rounded-2xl shadow-lg' : 'text-slate-400'}`}>Ferie</button>{isMaster && <button onClick={()=>setSub('logs')} className={`flex-1 sm:px-6 py-2 text-xs font-black uppercase tracking-widest transition-all ${sub === 'logs' ? 'bg-blue-600 text-white rounded-2xl shadow-lg' : 'text-slate-400'}`}>Log</button>}</div>
        </div>
-       {sub === 'leaves' && <LeaveRequestsPanel currentUser={user} targetIdentifier={targetUser} isAdmin={isAdminFull} userData={userData} />}
+       {sub === 'leaves' && <LeaveRequestsPanel currentUser={user} targetIdentifier={targetUser} isAdmin={isAdmin} userData={userData} />}
        {sub === 'logs' && isMaster && (
-          <div className="bg-white border rounded-[32px] overflow-hidden shadow-sm overflow-x-auto animate-in fade-in"><table className="w-full text-left text-xs"><thead className="bg-slate-50 text-slate-400 font-black uppercase tracking-widest border-b"><tr><th className="p-5">Membro</th><th className="p-5">Azione</th><th className="p-5">Data</th></tr></thead><tbody className="divide-y">{logs.map(l=>(<tr key={l.id} className="hover:bg-slate-50 transition-colors"><td className="p-5 font-bold uppercase text-[10px]">{l.userName}</td><td className="p-5">{l.action}</td><td className="p-5 text-[9px] text-slate-400">{formatDate(l.createdAt)}</td></tr>))}</tbody></table></div>
+          <div className="bg-white border rounded-[32px] overflow-hidden shadow-sm overflow-x-auto animate-in fade-in"><table className="w-full text-left text-xs"><thead className="bg-slate-50 text-slate-400 font-black uppercase tracking-widest border-b"><tr><th className="p-5">Membro</th><th className="p-5">Azione</th><th className="p-5">Data</th></tr></thead><tbody className="divide-y">{logs.map(l=>(<tr key={l.id} className="hover:bg-slate-50 transition-colors"><td className="p-5 font-bold uppercase text-[10px]">{l.userName}</td><td className="p-5">{l.action}</td><td className="p-5 text-[9px] text-slate-400">{formatTimestamp(l.createdAt)}</td></tr>))}</tbody></table></div>
        )}
     </div>
   );
@@ -520,7 +642,7 @@ function LeaveRequestsPanel({ currentUser, targetIdentifier, isAdmin, userData }
             <select className="w-full bg-slate-50 rounded-2xl p-4 font-bold text-sm outline-none" value={form.type} onChange={e=>setForm({...form, type: e.target.value})}><option>Ferie</option><option>Permesso (Ore)</option><option>Malattia</option></select>
             <input type="date" className="w-full bg-slate-50 rounded-2xl p-4 font-bold text-sm outline-none" value={form.start} onChange={e=>setForm({...form, start: e.target.value})}/>
             <input type="date" className="w-full bg-slate-50 rounded-2xl p-4 font-bold text-sm outline-none" value={form.end} onChange={e=>setForm({...form, end: e.target.value})}/>
-            <button type="submit" className="w-full bg-blue-600 text-white p-4 rounded-2xl font-black uppercase text-xs tracking-widest shadow-lg">Invia</button>
+            <button type="submit" className="w-full bg-blue-600 text-white p-4 rounded-2xl font-black uppercase text-xs tracking-widest shadow-lg shadow-blue-100">Invia</button>
           </form>
         </div>
       )}
@@ -533,6 +655,7 @@ function LeaveRequestsPanel({ currentUser, targetIdentifier, isAdmin, userData }
               )}
             </div>
           ))}
+          {leaves.length === 0 && <p className="text-center py-20 text-slate-300 font-black uppercase text-[10px] tracking-widest">Nessuna voce</p>}
       </div>
     </div>
   );
@@ -567,7 +690,7 @@ function TaskDetailContainer({ task, userData, isMaster, isAdminFull, onBack }) 
         </div>
       </div>
       <div className="mt-4">
-        {active === 'overview' && <SiteOverview task={task} isMaster={isMaster} isAdminFull={isAdminFull} userData={userData} />}
+        {active === 'overview' && <SiteOverview task={task} isMaster={isMaster} isAdmin={isAdminFull} userData={userData} />}
         {active === 'chat' && <SiteChat taskId={task.id} userData={userData} isClosed={isClosed} />}
         {active === 'reports' && <SiteReportsList taskId={task.id} isMaster={isMaster} userData={userData} isAdminFull={isAdminFull} />}
         {active === 'team' && <SiteTeam task={task} isAdminFull={isAdminFull} />}
