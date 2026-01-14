@@ -21,9 +21,7 @@ import {
   arrayRemove,
   where,
   orderBy,
-  limit,
-  getDocs,
-  writeBatch
+  limit
 } from 'firebase/firestore';
 import { 
   Activity, Plus, Trash2, CheckCircle, LogOut, Loader2, User, Lock, 
@@ -65,6 +63,7 @@ const STATIC_VEHICLES = [
   "Iveco Daily 2"
 ];
 
+// --- CONFIGURAZIONE UTENTI ---
 const USERS_CONFIG = {
   'a.cusimano': { role: 'Master', access: 'full', name: 'Andrea Cusimano' },
   'f.gentile': { role: 'Master', access: 'full', name: 'Francesco Gentile' },
@@ -78,10 +77,15 @@ const USERS_CONFIG = {
   'c.tardiota': { role: 'Dipendente', name: 'Carmine Tardiota' }
 };
 
-// --- HELPERS ---
-const formatTimestamp = (ts) => {
-  if (!ts || !ts.seconds) return '-';
-  return new Date(ts.seconds * 1000).toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+// --- HELPERS E FORMATTERS ---
+
+const formatDate = (timestamp) => {
+  if (!timestamp || !timestamp.seconds) return '-';
+  try {
+    return new Date(timestamp.seconds * 1000).toLocaleString('it-IT', { 
+      day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' 
+    });
+  } catch (e) { return 'Data non valida'; }
 };
 
 async function logOperation(userData, action, details) {
@@ -91,25 +95,40 @@ async function logOperation(userData, action, details) {
       const pos = await new Promise((res, rej) => navigator.geolocation.getCurrentPosition(res, rej, { timeout: 2000 }));
       location = `${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)}`;
     }
-  } catch (e) {}
+  } catch (e) { location = "Non rilevata"; }
   try {
     await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'audit_logs'), {
-      userId: userData?.uid || 'anon', userName: userData?.name || 'Utente', action, details: String(details), location, createdAt: serverTimestamp()
+      userId: userData?.uid || 'anon', 
+      userName: userData?.name || 'Utente', 
+      action, 
+      details: String(details), 
+      location, 
+      createdAt: serverTimestamp()
     });
   } catch (e) {}
 }
 
+async function sendNotification(targetUserId, title, message, type = 'info') {
+  try {
+    await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'notifications'), {
+      targetUserId, title, message, type, read: false, createdAt: serverTimestamp()
+    });
+  } catch (e) {}
+}
+
+// --- COMPONENTI UI BASE ---
+
 function LoadingScreen() {
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50 text-slate-400">
+    <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50 text-slate-500">
       <Loader2 className="w-10 h-10 animate-spin text-blue-600 mb-4" />
-      <p className="font-bold text-xs uppercase tracking-widest animate-pulse">Sincronizzazione...</p>
+      <p className="font-bold text-xs uppercase tracking-widest animate-pulse">Caricamento Sistema...</p>
     </div>
   );
 }
 
 // --- MODALI ---
-function ReportModal({ report, onClose, isAdmin }) {
+function ReportModal({ report, onClose, canDelete }) {
   if (!report) return null;
 
   const handleDelete = async () => {
@@ -121,21 +140,30 @@ function ReportModal({ report, onClose, isAdmin }) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4 animate-in fade-in" onClick={onClose}>
-      <div className="bg-white w-full max-w-lg rounded-[40px] shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
-        <div className="p-8 space-y-5">
-          <div className="flex justify-between items-start border-b pb-4">
-             <div><h3 className="text-xl font-black text-slate-800 uppercase tracking-tighter">Dettaglio</h3><p className="text-[10px] font-black text-slate-400 uppercase">{report.reportDate}</p></div>
-             <div className="flex gap-2">{isAdmin && <button onClick={handleDelete} className="p-3 text-red-500 bg-red-50 rounded-2xl"><Trash2 size={20}/></button>}<button onClick={onClose} className="p-3 text-slate-400 bg-slate-50 rounded-2xl"><X size={20}/></button></div>
+    <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 animate-in fade-in" onClick={onClose}>
+      <div className="bg-white w-full max-w-lg rounded-[32px] overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
+        <div className="bg-slate-50 p-6 border-b flex justify-between items-center">
+          <div>
+            <h3 className="font-black text-lg text-slate-800 uppercase tracking-tighter">Dettaglio Rapporto</h3>
+            <p className="text-[10px] text-slate-400 font-bold uppercase">{report.reportDate || 'Data N/D'}</p>
+          </div>
+          <div className="flex gap-2">
+             {canDelete && <button onClick={handleDelete} className="p-2 bg-red-50 text-red-500 rounded-xl hover:bg-red-100"><Trash2 size={20}/></button>}
+             <button onClick={onClose} className="p-2 bg-white rounded-full text-slate-400 hover:text-slate-600"><X size={20}/></button>
+          </div>
+        </div>
+        <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
+          <div className="grid grid-cols-2 gap-4">
+             <div className="p-4 bg-slate-50 rounded-2xl"><p className="text-[9px] font-black text-slate-400 uppercase">Operatore</p><p className="font-bold text-slate-700 text-sm">{report.userName}</p></div>
+             <div className="p-4 bg-slate-50 rounded-2xl"><p className="text-[9px] font-black text-slate-400 uppercase">Ore</p><p className="font-bold text-blue-600 text-xl">{report.hours} h</p></div>
+          </div>
+          <div className="p-5 bg-slate-50 rounded-2xl border border-slate-100">
+             <p className="text-[9px] font-black text-slate-400 uppercase mb-2">Descrizione</p>
+             <p className="text-sm text-slate-600 leading-relaxed whitespace-pre-wrap">{report.desc}</p>
           </div>
           <div className="grid grid-cols-2 gap-4">
-             <div className="p-4 bg-slate-50 rounded-3xl"><p className="text-[9px] font-black text-slate-400 uppercase">Operatore</p><p className="font-bold text-slate-700 text-sm">{report.userName}</p></div>
-             <div className="p-4 bg-slate-50 rounded-3xl"><p className="text-[9px] font-black text-slate-400 uppercase">Durata</p><p className="font-bold text-blue-600 text-xl">{report.hours}h</p></div>
-          </div>
-          <div className="p-5 bg-slate-50 rounded-3xl border border-slate-100"><p className="text-[9px] font-black text-slate-400 uppercase mb-2">Descrizione</p><p className="text-sm text-slate-600 whitespace-pre-wrap">{report.desc}</p></div>
-          <div className="grid grid-cols-2 gap-4">
-             <div className="p-4 bg-slate-50 rounded-3xl border"><p className="text-[9px] font-black text-slate-400 uppercase mb-1">Mezzo</p><div className="flex items-center gap-2 text-slate-700 font-bold text-[10px] truncate"><Truck size={14}/> {report.vehicleName}</div></div>
-             <div className="p-4 bg-slate-50 rounded-3xl border"><p className="text-[9px] font-black text-slate-400 uppercase mb-1">Carburante</p><div className="flex items-center gap-2 text-green-600 font-bold text-[10px]"><Fuel size={14}/> {report.fuelAmount ? `€ ${report.fuelAmount}` : 'No'}</div></div>
+             <div className="p-4 bg-slate-50 rounded-2xl border"><p className="text-[9px] font-black text-slate-400 uppercase mb-1">Veicolo</p><div className="flex items-center gap-2 text-slate-700 font-bold text-[10px] truncate"><Truck size={14}/> {report.vehicleName}</div></div>
+             <div className="p-4 bg-slate-50 rounded-2xl border"><p className="text-[9px] font-black text-slate-400 uppercase mb-1">Carburante</p><div className="flex items-center gap-2 text-green-600 font-bold text-[10px]"><Fuel size={14}/> {report.fuelAmount ? `€ ${report.fuelAmount}` : 'No'}</div></div>
           </div>
           {report.equipmentUsed && <div className="p-4 bg-blue-50/50 rounded-2xl border border-blue-100"><p className="text-[9px] font-black text-blue-400 uppercase mb-1">Attrezzatura</p><div className="flex items-center gap-2 text-blue-700 font-bold text-[10px] uppercase"><Construction size={14}/> {report.equipmentUsed}</div></div>}
         </div>
@@ -181,7 +209,7 @@ function SiteOverview({ task, isMaster, isAdmin, userData }) {
     <div className="space-y-6">
       <div className={`p-6 rounded-[32px] border flex justify-between items-center ${task.completed ? 'bg-slate-900 border-slate-800 text-white shadow-xl' : 'bg-white border-slate-200 shadow-sm'}`}>
         <div className="flex items-center gap-4">
-          <div className={`p-3 rounded-2xl ${task.completed ? 'bg-slate-800 text-green-400' : 'bg-blue-50 text-blue-600'}`}>{task.completed ? <LockKeyhole size={24}/> : <Activity size={24}/>}</div>
+          <div className={`p-3 rounded-2xl ${task.completed ? 'bg-slate-800 text-green-400' : 'bg-blue-50 text-blue-600'}`}>{task.completed ? <LockKeyhole/> : <Activity/>}</div>
           <div><h4 className="font-black uppercase text-[10px] tracking-widest">Stato</h4><p className="text-sm font-bold">{task.completed ? 'CHIUSO' : 'OPERATIVO'}</p></div>
         </div>
         {isMaster && (
@@ -192,7 +220,7 @@ function SiteOverview({ task, isMaster, isAdmin, userData }) {
       </div>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-white p-5 rounded-3xl border text-center shadow-sm"><p className="text-[9px] font-black text-slate-400 uppercase mb-1">Ore</p><p className="text-xl font-black text-slate-800">{stats.hrs} H</p></div>
-        <div className="bg-white p-5 rounded-3xl border text-center shadow-sm"><p className="text-[9px] font-black text-slate-400 uppercase mb-1">Materiali</p><p className="text-xl font-black text-slate-800">€ {stats.mat.toFixed(0)}</p></div>
+        <div className="bg-white p-5 rounded-3xl border text-center shadow-sm"><p className="text-[9px] font-black text-slate-400 uppercase mb-1">Costo Materiali</p><p className="text-xl font-black text-slate-800">€ {stats.mat.toFixed(0)}</p></div>
         <div className="bg-white p-5 rounded-3xl border text-center shadow-sm"><p className="text-[9px] font-black text-slate-400 uppercase mb-1">Trasferte</p><p className="text-xl font-black text-orange-600">{stats.travel}</p></div>
         <div className="bg-slate-50 p-5 rounded-3xl border text-center"><p className="text-[9px] font-black text-slate-400 uppercase mb-1">Zona</p><p className="text-xs font-bold truncate uppercase">{task.isTrasfertaSite ? 'Fuori Sede' : 'Locale'}</p>{isAdmin && !task.completed && <button onClick={toggleTravelSite} className="text-[9px] text-blue-500 font-bold mt-1 underline">CAMBIA</button>}</div>
       </div>
@@ -200,24 +228,24 @@ function SiteOverview({ task, isMaster, isAdmin, userData }) {
   );
 }
 
-function SiteReportsList({ taskId, isMaster, userData, isAdmin }) {
+function SiteReportsList({ taskId, isMaster, userData, isAdminFull }) {
   const [reports, setReports] = useState([]);
   const [selected, setSelected] = useState(null);
 
   useEffect(() => {
-    // Caricamento con query semplice + filtro locale per evitare errori di indice
+    // Caricamento semplice e filtraggio locale per evitare problemi di indici
     const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'daily_reports'));
     return onSnapshot(q, (snap) => {
       const all = snap.docs.map(d => ({id: d.id, ...d.data()}))
         .filter(r => r.taskId === taskId)
-        .sort((a,b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+        .sort((a,b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)); // Ordinamento decrescente
       setReports(isMaster ? all : all.filter(r => r.userName === userData.name));
     });
   }, [taskId, isMaster, userData?.name]);
 
   return (
     <div className="space-y-4 animate-in fade-in">
-      {reports.length === 0 && <p className="text-center py-20 text-slate-300 font-black uppercase text-[10px]">Nessun rapporto</p>}
+      {reports.length === 0 && <p className="text-center py-20 text-slate-300 font-black uppercase text-[10px]">Nessun rapporto trovato</p>}
       {reports.map(r => (
         <div key={r.id} onClick={()=>setSelected(r)} className="p-6 bg-white border rounded-[36px] flex justify-between items-center shadow-sm cursor-pointer hover:border-blue-300 transition-all border-slate-100 group">
           <div className="flex-1 min-w-0 pr-4">
@@ -231,7 +259,7 @@ function SiteReportsList({ taskId, isMaster, userData, isAdmin }) {
           <div className="text-right ml-4"><p className="text-2xl font-black text-slate-800 leading-none">{r.hours}<span className="text-xs">h</span></p></div>
         </div>
       ))}
-      {selected && <ReportModal report={selected} onClose={()=>setSelected(null)} canDelete={isAdmin} />}
+      {selected && <ReportModal report={selected} onClose={()=>setSelected(null)} canDelete={isAdminFull} />}
     </div>
   );
 }
@@ -303,8 +331,22 @@ function SiteSchedule({ task, isAdmin }) {
   const addPhase = async (e) => { e.preventDefault(); if(!isAdmin || !newPhase.name || !newPhase.start || !newPhase.end || task.completed) return; const updated = [...schedule, newPhase].sort((a,b) => new Date(a.start) - new Date(b.start)); await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'tasks', task.id), { schedule: updated }); setNewPhase({ name: '', start: '', end: '' }); };
   return (
     <div className="space-y-4">
-      {isAdmin && !task.completed && <form onSubmit={addPhase} className="bg-white p-5 rounded-[32px] border grid grid-cols-1 md:grid-cols-4 gap-4 shadow-sm"><input placeholder="Fase" className="bg-slate-50 border-none rounded-2xl p-4 font-bold text-sm outline-none shadow-inner" value={newPhase.name} onChange={e=>setNewPhase({...newPhase, name: e.target.value})} /><input type="date" className="bg-slate-50 border-none rounded-2xl p-4 font-bold text-sm outline-none shadow-inner" value={newPhase.start} onChange={e=>setNewPhase({...newPhase, start: e.target.value})} /><input type="date" className="bg-slate-50 border-none rounded-2xl p-4 font-bold text-sm outline-none shadow-inner" value={newPhase.end} onChange={e=>setNewPhase({...newPhase, end: e.target.value})} /><button type="submit" className="bg-blue-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg">Salva</button></form>}
-      <div className="space-y-3">{schedule.map((p, i) => (<div key={i} className="p-5 bg-white border rounded-[32px] flex justify-between items-center shadow-sm relative overflow-hidden"><div className="absolute left-0 top-0 bottom-0 w-1.5 bg-blue-500"></div><div><p className="font-black text-slate-800 uppercase tracking-tighter">{String(p.name)}</p><p className="text-[10px] font-black text-slate-400 mt-1 uppercase tracking-widest">{new Date(p.start).toLocaleDateString()} — {new Date(p.end).toLocaleDateString()}</p></div></div>))}</div>
+      {isAdmin && !task.completed && (
+        <form onSubmit={addPhase} className="bg-white p-5 rounded-[32px] border grid grid-cols-1 md:grid-cols-4 gap-4 shadow-sm">
+          <input placeholder="Fase" className="bg-slate-50 border-none rounded-2xl p-4 font-bold text-sm outline-none shadow-inner" value={newPhase.name} onChange={e=>setNewPhase({...newPhase, name: e.target.value})} />
+          <input type="date" className="bg-slate-50 border-none rounded-2xl p-4 font-bold text-sm outline-none shadow-inner" value={newPhase.start} onChange={e=>setNewPhase({...newPhase, start: e.target.value})} />
+          <input type="date" className="bg-slate-50 border-none rounded-2xl p-4 font-bold text-sm outline-none shadow-inner" value={newPhase.end} onChange={e=>setNewPhase({...newPhase, end: e.target.value})} />
+          <button type="submit" className="bg-blue-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg">Salva</button>
+        </form>
+      )}
+      <div className="space-y-3">
+        {schedule.map((p, i) => (
+          <div key={i} className="p-5 bg-white border rounded-[32px] flex justify-between items-center shadow-sm relative overflow-hidden">
+            <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-blue-500"></div>
+            <div><p className="font-black text-slate-800 uppercase tracking-tighter">{String(p.name)}</p><p className="text-[10px] font-black text-slate-400 mt-1 uppercase tracking-widest">{new Date(p.start).toLocaleDateString()} — {new Date(p.end).toLocaleDateString()}</p></div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -406,15 +448,12 @@ function DailyReportsView({ userData, tasks, isMaster, isAdminFull }) {
   const [selected, setSelected] = useState(null);
 
   useEffect(() => {
-    // Caricamento con query semplice + ordinamento in memoria per stabilità
-    const q = isMaster 
-      ? query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'daily_reports'))
-      : query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'daily_reports'), where('userName', '==', userData.name));
-      
+    // Caricamento semplice
+    const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'daily_reports'));
     return onSnapshot(q, (snap) => {
       const all = snap.docs.map(d => ({id: d.id, ...d.data()}))
         .sort((a,b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
-      setReports(all);
+      setReports(isMaster ? all.slice(0, 50) : all.filter(r => r.userName === userData.name).slice(0, 50));
     });
   }, [isMaster, userData?.name]);
 
@@ -501,7 +540,7 @@ function PersonalAreaView({ user, userData, isMaster, isAdmin }) {
        </div>
        {sub === 'leaves' && <LeaveRequestsPanel currentUser={user} targetIdentifier={targetUser} isMaster={isMaster} isAdmin={isAdmin} userData={userData} />}
        {sub === 'logs' && isMaster && (
-          <div className="bg-white border rounded-[32px] overflow-hidden shadow-sm overflow-x-auto animate-in fade-in"><table className="w-full text-left text-xs"><thead className="bg-slate-50 text-slate-400 font-black uppercase tracking-widest border-b"><tr><th className="p-5">Membro</th><th className="p-5">Azione</th><th className="p-5">GPS</th><th className="p-5">Data</th></tr></thead><tbody className="divide-y">{logs.map(l=>(<tr key={l.id} className="hover:bg-slate-50 transition-colors"><td className="p-5 font-bold uppercase text-[10px]">{l.userName}</td><td className="p-5">{l.action}</td><td className="p-5 font-mono text-blue-500 uppercase text-[9px]">{l.location}</td><td className="p-5 text-slate-400">{formatTimestamp(l.createdAt)}</td></tr>))}</tbody></table></div>
+          <div className="bg-white border rounded-[32px] overflow-hidden shadow-sm overflow-x-auto animate-in fade-in"><table className="w-full text-left text-xs"><thead className="bg-slate-50 text-slate-400 font-black uppercase tracking-widest border-b"><tr><th className="p-5">Membro</th><th className="p-5">Azione</th><th className="p-5">GPS</th><th className="p-5">Data</th></tr></thead><tbody className="divide-y">{logs.map(l=>(<tr key={l.id} className="hover:bg-slate-50 transition-colors"><td className="p-5 font-bold uppercase text-[10px]">{l.userName}</td><td className="p-5 text-[10px]">{l.action}</td><td className="p-5 font-mono text-blue-500 uppercase text-[9px]">{l.location}</td><td className="p-5 text-[9px] text-slate-400">{formatTimestamp(l.createdAt)}</td></tr>))}</tbody></table></div>
        )}
     </div>
   );
@@ -511,10 +550,13 @@ function LeaveRequestsPanel({ currentUser, targetIdentifier, isAdmin, userData }
   const [leaves, setLeaves] = useState([]);
   const [form, setForm] = useState({ start: '', end: '', type: 'Ferie' });
   useEffect(() => {
+    // Caricamento e filtro locale
     const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'leaves'));
     return onSnapshot(q, (snap) => {
       const all = snap.docs.map(d => ({id: d.id, ...d.data()}));
-      setLeaves(all.filter(l => (targetIdentifier === currentUser.uid ? l.userId === currentUser.uid : l.username === targetIdentifier)).sort((a,b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)));
+      const filtered = all.filter(l => (targetIdentifier === currentUser.uid ? l.userId === currentUser.uid : l.username === targetIdentifier))
+      .sort((a,b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+      setLeaves(filtered);
     });
   }, [targetIdentifier, currentUser]);
   const submit = async (e) => { e.preventDefault(); if (!form.start || !form.end) return; await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'leaves'), { ...form, userId: currentUser.uid, username: currentUser.email?.split('@')[0], fullName: userData?.name || 'Utente', status: 'pending', createdAt: serverTimestamp() }); setForm({ start: '', end: '', type: 'Ferie' }); };
@@ -533,15 +575,17 @@ function LeaveRequestsPanel({ currentUser, targetIdentifier, isAdmin, userData }
         </div>
       )}
       <div className={`col-span-1 ${targetIdentifier === currentUser.uid ? 'md:col-span-2' : 'md:col-span-3'} space-y-3`}>
-        {leaves.map(req => (
-            <div key={req.id} className="bg-white p-6 rounded-[32px] border shadow-sm flex justify-between items-center border-slate-100">
-              <div><div className="flex items-center gap-3"><span className={`px-3 py-1 rounded-lg text-[9px] font-black tracking-widest ${req.status === 'approved' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>{req.status.toUpperCase()}</span><h4 className="font-bold text-slate-800 uppercase tracking-tighter">{req.type}</h4></div><p className="text-sm text-slate-500 mt-2 font-bold">{req.start} — {req.end}</p></div>
-              {isAdmin && targetIdentifier !== currentUser.uid && req.status === 'pending' && (
-                <div className="flex gap-2"><button onClick={() => handleStatus(req.id, 'approved')} className="bg-green-600 text-white px-5 py-2 rounded-xl text-xs font-black uppercase tracking-widest shadow-md transition-all hover:scale-105">Ok</button><button onClick={() => handleStatus(req.id, 'rejected')} className="bg-red-50 text-red-600 px-5 py-2 rounded-xl text-xs font-black uppercase border border-red-100 transition-all hover:bg-red-100">No</button></div>
-              )}
-            </div>
-          ))}
-          {leaves.length === 0 && <p className="text-center py-20 text-slate-300 font-black uppercase text-[10px] tracking-widest">Nessuna voce</p>}
+        {leaves.map(req => {
+            const statusStyle = req.status === 'approved' ? 'bg-green-100 text-green-700' : (req.status === 'rejected' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700');
+            return (
+              <div key={req.id} className="bg-white p-6 rounded-[32px] border shadow-sm flex justify-between items-center border-slate-100">
+                <div><div className="flex items-center gap-3"><span className={`px-3 py-1 rounded-lg text-[9px] font-black tracking-widest ${statusStyle}`}>{req.status.toUpperCase()}</span><h4 className="font-bold text-slate-800 uppercase tracking-tighter">{req.type}</h4></div><p className="text-sm text-slate-500 mt-2 font-bold">{req.start} — {req.end}</p></div>
+                {isAdmin && targetIdentifier !== currentUser.uid && req.status === 'pending' && (
+                  <div className="flex gap-2"><button onClick={() => handleStatus(req.id, 'approved')} className="bg-green-600 text-white px-5 py-2 rounded-xl text-xs font-black uppercase tracking-widest shadow-md transition-all hover:scale-105">Sì</button><button onClick={() => handleStatus(req.id, 'rejected')} className="bg-red-50 text-red-600 px-5 py-2 rounded-xl text-xs font-black uppercase border border-red-100 transition-all hover:bg-red-100">No</button></div>
+                )}
+              </div>
+            );
+          })}
       </div>
     </div>
   );
@@ -576,16 +620,15 @@ function TaskDetailContainer({ task, userData, isMaster, isAdminFull, onBack }) 
         </div>
       </div>
       <div className="mt-4">
-        {active === 'overview' && <SiteOverview task={task} isMaster={isMaster} isAdminFull={isAdminFull} userData={userData} />}
+        {active === 'overview' && <SiteOverview task={task} isMaster={isMaster} isAdmin={isAdminFull} userData={userData} />}
         {active === 'chat' && <SiteChat taskId={task.id} userData={userData} isClosed={isClosed} />}
         {active === 'reports' && <SiteReportsList taskId={task.id} isMaster={isMaster} userData={userData} isAdminFull={isAdminFull} />}
-        {active === 'team' && <SiteTeam task={task} isAdmin={isAdminFull} />}
-        {active === 'documents' && <SiteDocuments taskId={task.id} isAdmin={isAdminFull} userData={userData} isClosed={isClosed} />}
-        {active === 'schedule' && <SiteSchedule task={task} isAdmin={isAdminFull} />}
+        {active === 'team' && <SiteTeam task={task} isAdminFull={isAdminFull} />}
+        {active === 'documents' && <SiteDocuments taskId={task.id} isAdminFull={isAdminFull} userData={userData} isClosed={isClosed} />}
+        {active === 'schedule' && <SiteSchedule task={task} isAdminFull={isAdminFull} />}
         {active === 'accounting' && isMaster && <SiteAccounting taskId={task.id} />}
         {active === 'requests' && <MaterialRequestsView taskId={task.id} userData={userData} isClosed={isClosed} />}
-        {active === 'photos' && <SitePhotos taskId={task.id} userData={userData} isAdmin={isAdminFull} isClosed={isClosed} />}
-        {active === 'materials' && <MaterialsView context="site" taskId={task.id} />}
+        {active === 'photos' && <SitePhotos taskId={task.id} userData={userData} isAdminFull={isAdminFull} isClosed={isClosed} />}
       </div>
     </div>
   );
