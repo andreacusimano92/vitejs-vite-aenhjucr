@@ -33,7 +33,7 @@ import {
   Users, FileCheck, Download, CalendarRange, Bell, UserCheck, FileUp, 
   Maximize2, Truck, AlertTriangle, PenTool, MessageSquare, MapPin, 
   Send, ShieldAlert, Timer, Eye, LockKeyhole, UnlockKeyhole, FileBarChart, Map,
-  Fuel, Construction, Banknote
+  Fuel, Construction
 } from 'lucide-react';
 
 // --- CONFIGURAZIONE FIREBASE ---
@@ -47,6 +47,7 @@ const firebaseConfig = {
   measurementId: "G-N8KSTTS8ET"
 };
 
+// FIX: Corretta inizializzazione della variabile 'app'
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
@@ -78,10 +79,12 @@ const USERS_CONFIG = {
   'c.tardiota': { role: 'Dipendente', name: 'Carmine Tardiota' }
 };
 
-// --- HELPERS ---
+// --- HELPERS SICURI ---
 const formatTimestamp = (ts) => {
   if (!ts || !ts.seconds) return '-';
-  return new Date(ts.seconds * 1000).toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  try {
+    return new Date(ts.seconds * 1000).toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  } catch (e) { return '-'; }
 };
 
 async function logOperation(userData, action, details) {
@@ -108,7 +111,7 @@ function LoadingScreen() {
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50 text-slate-400">
       <Loader2 className="w-10 h-10 animate-spin text-blue-600 mb-4" />
-      <p className="font-bold text-xs uppercase tracking-widest animate-pulse">Sincronizzazione Sistema...</p>
+      <p className="font-bold text-xs uppercase tracking-widest animate-pulse">Avvio Applicazione...</p>
     </div>
   );
 }
@@ -126,21 +129,30 @@ function ReportModal({ report, onClose, canDelete }) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4 animate-in fade-in" onClick={onClose}>
-      <div className="bg-white w-full max-w-lg rounded-[40px] shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
-        <div className="p-8 space-y-5">
-          <div className="flex justify-between items-start border-b pb-4">
-             <div><h3 className="text-xl font-black text-slate-800 uppercase tracking-tighter">Dettaglio</h3><p className="text-[10px] font-black text-slate-400 uppercase">{report.reportDate}</p></div>
-             <div className="flex gap-2">{canDelete && <button onClick={handleDelete} className="p-3 text-red-500 bg-red-50 rounded-2xl"><Trash2 size={20}/></button>}<button onClick={onClose} className="p-3 text-slate-400 bg-slate-50 rounded-2xl"><X size={20}/></button></div>
+    <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 animate-in fade-in" onClick={onClose}>
+      <div className="bg-white w-full max-w-lg rounded-[32px] overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
+        <div className="bg-slate-50 p-6 border-b flex justify-between items-center">
+          <div>
+            <h3 className="font-black text-lg text-slate-800 uppercase tracking-tighter">Dettaglio Rapporto</h3>
+            <p className="text-[10px] text-slate-400 font-bold uppercase">{report.reportDate || 'Data N/D'}</p>
+          </div>
+          <div className="flex gap-2">
+             {canDelete && <button onClick={handleDelete} className="p-2 bg-red-50 text-red-500 rounded-xl hover:bg-red-100"><Trash2 size={20}/></button>}
+             <button onClick={onClose} className="p-2 bg-white rounded-full text-slate-400 hover:text-slate-600"><X size={20}/></button>
+          </div>
+        </div>
+        <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
+          <div className="grid grid-cols-2 gap-4">
+             <div className="p-4 bg-slate-50 rounded-2xl"><p className="text-[9px] font-black text-slate-400 uppercase">Operatore</p><p className="font-bold text-slate-700 text-sm">{report.userName}</p></div>
+             <div className="p-4 bg-slate-50 rounded-2xl"><p className="text-[9px] font-black text-slate-400 uppercase">Ore</p><p className="font-bold text-blue-600 text-xl">{report.hours} h</p></div>
+          </div>
+          <div className="p-5 bg-slate-50 rounded-2xl border border-slate-100">
+             <p className="text-[9px] font-black text-slate-400 uppercase mb-2">Descrizione</p>
+             <p className="text-sm text-slate-600 leading-relaxed whitespace-pre-wrap">{report.desc}</p>
           </div>
           <div className="grid grid-cols-2 gap-4">
-             <div className="p-4 bg-slate-50 rounded-3xl"><p className="text-[9px] font-black text-slate-400 uppercase">Operatore</p><p className="font-bold text-slate-700 text-sm">{report.userName}</p></div>
-             <div className="p-4 bg-slate-50 rounded-3xl"><p className="text-[9px] font-black text-slate-400 uppercase">Durata</p><p className="font-bold text-blue-600 text-xl">{report.hours}h</p></div>
-          </div>
-          <div className="p-5 bg-slate-50 rounded-3xl border border-slate-100"><p className="text-[9px] font-black text-slate-400 uppercase mb-2">Descrizione</p><p className="text-sm text-slate-600 whitespace-pre-wrap">{report.desc}</p></div>
-          <div className="grid grid-cols-2 gap-4">
-             <div className="p-4 bg-slate-50 rounded-3xl border"><p className="text-[9px] font-black text-slate-400 uppercase mb-1">Mezzo</p><div className="flex items-center gap-2 text-slate-700 font-bold text-[10px] truncate"><Truck size={14}/> {report.vehicleName}</div></div>
-             <div className="p-4 bg-slate-50 rounded-3xl border"><p className="text-[9px] font-black text-slate-400 uppercase mb-1">Carburante</p><div className="flex items-center gap-2 text-green-600 font-bold text-[10px]"><Fuel size={14}/> {report.fuelAmount ? `€ ${report.fuelAmount}` : 'No'}</div></div>
+             <div className="p-4 bg-slate-50 rounded-2xl border"><p className="text-[9px] font-black text-slate-400 uppercase mb-1">Veicolo</p><div className="flex items-center gap-2 text-slate-700 font-bold text-[10px] truncate"><Truck size={14}/> {report.vehicleName}</div></div>
+             <div className="p-4 bg-slate-50 rounded-2xl border"><p className="text-[9px] font-black text-slate-400 uppercase mb-1">Carburante</p><div className="flex items-center gap-2 text-green-600 font-bold text-[10px]"><Fuel size={14}/> {report.fuelAmount ? `€ ${report.fuelAmount}` : 'No'}</div></div>
           </div>
           {report.equipmentUsed && <div className="p-4 bg-blue-50/50 rounded-2xl border border-blue-100"><p className="text-[9px] font-black text-blue-400 uppercase mb-1">Attrezzatura</p><div className="flex items-center gap-2 text-blue-700 font-bold text-[10px] uppercase"><Construction size={14}/> {report.equipmentUsed}</div></div>}
         </div>
@@ -158,11 +170,14 @@ function SiteOverview({ task, isMaster, isAdmin, userData }) {
   useEffect(() => {
     if (!task?.id) return;
     const unsubM = onSnapshot(query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'materials'), where('taskId', '==', task.id)), s => {
-      setStats(prev => ({...prev, mat: s.docs.reduce((sum, d) => sum + (parseFloat(d.data().quantity || 0) * parseFloat(d.data().cost || 0)), 0)}));
+      const mat = s.docs.reduce((sum, d) => sum + (parseFloat(d.data().quantity || 0) * parseFloat(d.data().cost || 0)), 0);
+      setStats(prev => ({...prev, mat}));
     });
     const unsubL = onSnapshot(query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'daily_reports'), where('taskId', '==', task.id)), s => {
       const reps = s.docs.map(d=>d.data());
-      setStats(prev => ({...prev, hrs: reps.reduce((sum, d) => sum + (parseFloat(d.hours || 0)), 0), travel: reps.filter(d=>d.isTrasferta).length}));
+      const hrs = reps.reduce((sum, d) => sum + (parseFloat(d.hours || 0)), 0);
+      const travelCount = reps.filter(d => d.isTrasferta).length;
+      setStats(prev => ({...prev, hrs, travel: travelCount}));
     });
     return () => { unsubM(); unsubL(); };
   }, [task.id]);
@@ -356,19 +371,62 @@ function MaterialRequestsView({ taskId, userData, isClosed }) {
   );
 }
 
-function SiteAccounting({ taskId }) {
+function SiteAccounting({ taskId, isMaster }) {
   const [totals, setTotals] = useState({ materials: 0, labor: 0, extra: 0, travel: 0 });
+  const [expenses, setExpenses] = useState([]);
+  const [newExpense, setNewExpense] = useState({ desc: '', amount: '' });
+
   useEffect(() => {
     const unsubM = onSnapshot(query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'materials'), where('taskId', '==', taskId)), s => { setTotals(prev => ({...prev, materials: s.docs.reduce((sum, d) => sum + (parseFloat(d.data().quantity || 0) * parseFloat(d.data().cost || 0)), 0)})); });
     const unsubL = onSnapshot(query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'daily_reports'), where('taskId', '==', taskId)), s => { const reports = s.docs.map(d=>d.data()); setTotals(prev => ({ ...prev, labor: reports.reduce((sum, d) => sum + (parseFloat(d.hours || 0)), 0) * STANDARD_HOURLY_RATE, travel: reports.filter(d=>d.isTrasferta).length })); });
-    return () => { unsubM(); unsubL(); };
+    const unsubE = onSnapshot(query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'expenses'), where('taskId', '==', taskId)), s => {
+      const exp = s.docs.map(d=>({id: d.id, ...d.data()}));
+      setExpenses(exp);
+      setTotals(prev => ({...prev, extra: exp.reduce((sum, e) => sum + parseFloat(e.amount || 0), 0)}));
+    });
+    return () => { unsubM(); unsubL(); unsubE(); };
   }, [taskId]);
+
+  const addExpense = async (e) => {
+    e.preventDefault();
+    if(!newExpense.desc || !newExpense.amount) return;
+    await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'expenses'), { taskId, description: newExpense.desc, amount: newExpense.amount, createdAt: serverTimestamp() });
+    setNewExpense({ desc: '', amount: '' });
+  };
+
+  const deleteExpense = async (id) => {
+    if(window.confirm("Eliminare spesa?")) await deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'expenses', id));
+  };
+
   return (
-    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 animate-in slide-in-from-top-4">
-      <div className="bg-white p-6 rounded-3xl border shadow-sm text-center"><p className="text-[9px] text-slate-400 uppercase font-black tracking-widest mb-1">Materiali</p><p className="text-xl font-bold text-slate-800">€ {totals.materials.toFixed(0)}</p></div>
-      <div className="bg-white p-6 rounded-3xl border shadow-sm text-center"><p className="text-[9px] text-slate-400 uppercase font-black tracking-widest mb-1">Manodopera</p><p className="text-xl font-bold text-slate-800">€ {totals.labor.toFixed(0)}</p></div>
-      <div className="bg-white p-6 rounded-3xl border shadow-sm text-center"><p className="text-[9px] text-slate-400 uppercase font-black tracking-widest mb-1">Trasferte</p><p className="text-xl font-bold text-orange-600">{totals.travel}</p></div>
-      <div className="bg-slate-900 p-6 rounded-3xl shadow-xl text-center text-white"><p className="text-[9px] text-slate-400 uppercase font-black tracking-widest mb-1">Totale</p><p className="text-2xl font-bold">€ {(totals.materials + totals.labor).toFixed(0)}</p></div>
+    <div className="space-y-6 animate-in fade-in">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="bg-white p-6 rounded-3xl border shadow-sm text-center"><p className="text-[9px] text-slate-400 uppercase font-black tracking-widest mb-1">Materiali</p><p className="text-xl font-bold text-slate-800">€ {totals.materials.toFixed(0)}</p></div>
+        <div className="bg-white p-6 rounded-3xl border shadow-sm text-center"><p className="text-[9px] text-slate-400 uppercase font-black tracking-widest mb-1">Manodopera</p><p className="text-xl font-bold text-slate-800">€ {totals.labor.toFixed(0)}</p></div>
+        <div className="bg-white p-6 rounded-3xl border shadow-sm text-center"><p className="text-[9px] text-slate-400 uppercase font-black tracking-widest mb-1">Extra</p><p className="text-xl font-bold text-orange-600">€ {totals.extra.toFixed(0)}</p></div>
+        <div className="bg-slate-900 p-6 rounded-3xl shadow-xl text-center text-white"><p className="text-[9px] text-slate-400 uppercase font-black tracking-widest mb-1">Totale</p><p className="text-2xl font-bold">€ {(totals.materials + totals.labor + totals.extra).toFixed(0)}</p></div>
+      </div>
+      <div className="bg-white p-6 rounded-[32px] border shadow-sm">
+        <h3 className="font-black text-slate-800 uppercase tracking-tighter mb-4">Spese Extra</h3>
+        {isMaster && (
+          <form onSubmit={addExpense} className="flex gap-2 mb-4">
+            <input placeholder="Descrizione (es. Noleggio, Permessi)" className="flex-1 bg-slate-50 rounded-xl p-3 text-sm outline-none" value={newExpense.desc} onChange={e=>setNewExpense({...newExpense, desc: e.target.value})}/>
+            <input type="number" placeholder="€" className="w-24 bg-slate-50 rounded-xl p-3 text-sm outline-none" value={newExpense.amount} onChange={e=>setNewExpense({...newExpense, amount: e.target.value})}/>
+            <button className="bg-blue-600 text-white px-4 rounded-xl font-bold text-xs">OK</button>
+          </form>
+        )}
+        <div className="space-y-2">
+          {expenses.map(e => (
+            <div key={e.id} className="flex justify-between items-center p-3 border-b last:border-0 hover:bg-slate-50">
+              <span className="text-sm font-bold text-slate-700">{e.description}</span>
+              <div className="flex items-center gap-3">
+                <span className="font-bold text-slate-900">€ {e.amount}</span>
+                {isMaster && <button onClick={()=>deleteExpense(e.id)} className="text-red-400 hover:text-red-600"><Trash2 size={16}/></button>}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -405,7 +463,7 @@ function TasksView({ userData, isAdmin, onSelectTask }) {
         <form onSubmit={addTask} className="bg-white p-10 rounded-[40px] border shadow-2xl space-y-5 animate-in slide-in-from-top-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <input placeholder="Titolo Cantiere" className="bg-slate-50 border-none rounded-2xl p-5 outline-none font-bold text-lg" onChange={e=>setNewTask({...newTask, title: e.target.value})} required />
-            <input placeholder="Committente" className="bg-slate-50 border-none rounded-2xl p-5 outline-none font-bold text-lg" onChange={e=>setNewTask({...newTask, client: e.target.value})} required />
+            <input placeholder="Cliente" className="bg-slate-50 border-none rounded-2xl p-5 outline-none font-bold text-lg" onChange={e=>setNewTask({...newTask, client: e.target.value})} required />
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
              <input placeholder="Indirizzo" className="bg-slate-50 border-none rounded-2xl p-4 font-bold text-sm outline-none" onChange={e=>setNewTask({...newTask, address: e.target.value})} />
@@ -596,7 +654,8 @@ function LeaveRequestsPanel({ currentUser, targetIdentifier, isAdmin, userData }
     const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'leaves'));
     return onSnapshot(q, (snap) => {
       const all = snap.docs.map(d => ({id: d.id, ...d.data()}));
-      setLeaves(all.filter(l => (targetIdentifier === currentUser.uid ? l.userId === currentUser.uid : l.username === targetIdentifier)).sort((a,b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)));
+      const filtered = all.filter(l => (targetIdentifier === currentUser.uid ? l.userId === currentUser.uid : l.username === targetIdentifier)).sort((a,b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+      setLeaves(filtered);
     });
   }, [targetIdentifier, currentUser]);
   const submit = async (e) => { e.preventDefault(); if (!form.start || !form.end) return; await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'leaves'), { ...form, userId: currentUser.uid, username: currentUser.email?.split('@')[0], fullName: userData?.name || 'Utente', status: 'pending', createdAt: serverTimestamp() }); setForm({ start: '', end: '', type: 'Ferie' }); };
@@ -662,13 +721,13 @@ function TaskDetailContainer({ task, userData, isMaster, isAdminFull, onBack }) 
         </div>
       </div>
       <div className="mt-4">
-        {active === 'overview' && <SiteOverview task={task} isMaster={isMaster} isAdminFull={isAdminFull} userData={userData} />}
+        {active === 'overview' && <SiteOverview task={task} isMaster={isMaster} isAdmin={isAdminFull} userData={userData} />}
         {active === 'chat' && <SiteChat taskId={task.id} userData={userData} isClosed={isClosed} />}
         {active === 'reports' && <SiteReportsList taskId={task.id} isMaster={isMaster} userData={userData} isAdminFull={isAdminFull} />}
-        {active === 'team' && <SiteTeam task={task} isAdminFull={isAdminFull} />}
+        {active === 'team' && <SiteTeam task={task} isAdmin={isAdminFull} />}
         {active === 'documents' && <SiteDocuments taskId={task.id} isAdminFull={isAdminFull} userData={userData} isClosed={isClosed} />}
         {active === 'schedule' && <SiteSchedule task={task} isAdminFull={isAdminFull} />}
-        {active === 'accounting' && isMaster && <SiteAccounting taskId={task.id} />}
+        {active === 'accounting' && isMaster && <SiteAccounting taskId={task.id} isMaster={isMaster} />}
         {active === 'requests' && <MaterialRequestsView taskId={task.id} userData={userData} isClosed={isClosed} />}
         {active === 'photos' && <SitePhotos taskId={task.id} userData={userData} isAdminFull={isAdminFull} isClosed={isClosed} />}
         {active === 'materials' && <MaterialsView context="site" taskId={task.id} />}
