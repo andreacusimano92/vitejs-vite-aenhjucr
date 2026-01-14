@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { initializeApp } from 'firebase/app';
 import { 
   getAuth, 
@@ -24,48 +24,13 @@ import {
   limit
 } from 'firebase/firestore';
 import { 
-  Activity, 
-  Plus, 
-  Trash2, 
-  CheckCircle, 
-  LogOut, 
-  Loader2,
-  User,
-  Lock,
-  LayoutDashboard,
-  ShieldCheck,
-  Package,
-  Wrench,
-  ClipboardList,
-  Building2,
-  FileText,
-  ArrowLeft,
-  Camera,
-  Calculator,
-  HardHat,
-  Edit2,
-  Save,
-  X,
-  Calendar,
-  Clock,
-  Briefcase,
-  ShoppingCart,
-  CheckSquare,
-  Users,
-  FileCheck,
-  Download,
-  CalendarRange,
-  Bell,
-  UserCheck,
-  FileUp,
-  Maximize2,
-  MessageSquare,
-  MapPin,
-  Send,
-  Timer,
-  LockKeyhole,
-  FileBarChart,
-  Map
+  Activity, Plus, Trash2, CheckCircle, LogOut, Loader2, User, Lock, 
+  LayoutDashboard, ShieldCheck, Package, Wrench, ClipboardList, 
+  Building2, FileText, ArrowLeft, Camera, Calculator, HardHat, 
+  Edit2, Save, X, Calendar, Clock, ShoppingCart, CheckSquare, 
+  Users, FileCheck, Download, CalendarRange, Bell, UserCheck, FileUp, 
+  Maximize2, Truck, PenTool, MessageSquare, MapPin, Send, Timer, 
+  LockKeyhole, Map
 } from 'lucide-react';
 
 // --- CONFIGURAZIONE FIREBASE ---
@@ -87,13 +52,14 @@ const APP_ID = typeof __app_id !== 'undefined' ? __app_id : 'impresadaria-v1';
 const STANDARD_HOURLY_RATE = 30.00;
 
 // --- LISTA MEZZI STATICA ---
-const STATIC_VEHICLES = [
+const COMPANY_VEHICLES = [
   "Ford Transit Custom",
   "Fiat Doblò",
   "Volvo XC60",
   "Ford Galaxy",
   "Iveco Daily 1",
-  "Iveco Daily 2"
+  "Iveco Daily 2",
+  "Mezzo Proprio/Altro"
 ];
 
 // --- CONFIGURAZIONE UTENTI ---
@@ -125,6 +91,14 @@ async function logOperation(userData, action, details) {
     });
   } catch (e) {}
 }
+
+const sendNotification = async (targetUserId, title, message, type = 'info') => {
+  try {
+    await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'notifications'), {
+      targetUserId, title, message, type, read: false, createdAt: serverTimestamp()
+    });
+  } catch (e) {}
+};
 
 function LoadingScreen() {
   return (
@@ -162,6 +136,7 @@ function SiteOverview({ task, isMaster, isAdmin, userData }) {
     try {
       await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'tasks', task.id), { completed: newStatus });
       await logOperation(userData, newStatus ? "Chiusura Cantiere" : "Riapertura Cantiere", task.title);
+      await sendNotification('all_masters', newStatus ? 'Cantiere Chiuso' : 'Cantiere Riaperto', `Il cantiere ${task.title} è stato ${newStatus ? 'chiuso' : 'riaperto'}.`);
     } catch (e) { alert("Errore"); }
   };
 
@@ -440,8 +415,8 @@ function TasksView({ userData, isAdmin, onSelectTask }) {
       {isFormOpen && (
         <form onSubmit={addTask} className="bg-white p-10 rounded-[40px] border shadow-2xl space-y-5 animate-in slide-in-from-top-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <input placeholder="Titolo" className="bg-slate-50 border-none rounded-2xl p-5 outline-none font-bold" onChange={e=>setNewTask({...newTask, title: e.target.value})} required />
-            <input placeholder="Cliente" className="bg-slate-50 border-none rounded-2xl p-5 outline-none font-bold" onChange={e=>setNewTask({...newTask, client: e.target.value})} required />
+            <input placeholder="Titolo Cantiere" className="bg-slate-50 border-none rounded-2xl p-5 outline-none font-bold text-lg" onChange={e=>setNewTask({...newTask, title: e.target.value})} required />
+            <input placeholder="Cliente" className="bg-slate-50 border-none rounded-2xl p-5 outline-none font-bold text-lg" onChange={e=>setNewTask({...newTask, client: e.target.value})} required />
           </div>
           <div className="flex items-center gap-3 bg-slate-50 p-4 rounded-2xl shadow-inner">
              <input type="checkbox" className="w-5 h-5 accent-blue-600" onChange={e=>setNewTask({...newTask, isTrasfertaSite: e.target.checked})} />
