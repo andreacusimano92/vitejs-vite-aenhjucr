@@ -65,7 +65,6 @@ const STATIC_VEHICLES = [
   "Iveco Daily 2"
 ];
 
-// --- CONFIGURAZIONE UTENTI ---
 const USERS_CONFIG = {
   'a.cusimano': { role: 'Master', access: 'full', name: 'Andrea Cusimano' },
   'f.gentile': { role: 'Master', access: 'full', name: 'Francesco Gentile' },
@@ -79,7 +78,11 @@ const USERS_CONFIG = {
   'c.tardiota': { role: 'Dipendente', name: 'Carmine Tardiota' }
 };
 
-// --- HELPERS DI SISTEMA ---
+// --- HELPERS ---
+const formatTimestamp = (ts) => {
+  if (!ts || !ts.seconds) return '-';
+  return new Date(ts.seconds * 1000).toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+};
 
 async function logOperation(userData, action, details) {
   let location = "N/D";
@@ -91,27 +94,22 @@ async function logOperation(userData, action, details) {
   } catch (e) {}
   try {
     await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'audit_logs'), {
-      userId: userData?.uid || 'anon', 
-      userName: userData?.name || 'Utente', 
-      action, 
-      details: String(details), 
-      location, 
-      createdAt: serverTimestamp()
+      userId: userData?.uid || 'anon', userName: userData?.name || 'Utente', action, details: String(details), location, createdAt: serverTimestamp()
     });
   } catch (e) {}
 }
 
 function LoadingScreen() {
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50 text-slate-500">
+    <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50 text-slate-400">
       <Loader2 className="w-10 h-10 animate-spin text-blue-600 mb-4" />
-      <p className="font-bold text-xs uppercase tracking-widest animate-pulse">Sincronizzazione Sistema...</p>
+      <p className="font-bold text-xs uppercase tracking-widest animate-pulse">Sincronizzazione...</p>
     </div>
   );
 }
 
 // --- MODALI ---
-function ReportModal({ report, onClose, canDelete }) {
+function ReportModal({ report, onClose, isAdmin }) {
   if (!report) return null;
 
   const handleDelete = async () => {
@@ -123,32 +121,23 @@ function ReportModal({ report, onClose, canDelete }) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 animate-in fade-in" onClick={onClose}>
-      <div className="bg-white w-full max-w-lg rounded-[32px] overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
-        <div className="bg-slate-50 p-6 border-b flex justify-between items-center">
-          <div>
-            <h3 className="font-black text-lg text-slate-800 uppercase tracking-tighter">Dettaglio Rapporto</h3>
-            <p className="text-[10px] text-slate-400 font-bold uppercase">{report.reportDate || 'Data N/D'}</p>
-          </div>
-          <div className="flex gap-2">
-             {canDelete && <button onClick={handleDelete} className="p-2 bg-red-50 text-red-500 rounded-xl hover:bg-red-100"><Trash2 size={20}/></button>}
-             <button onClick={onClose} className="p-2 bg-white rounded-full text-slate-400 hover:text-slate-600"><X size={20}/></button>
-          </div>
-        </div>
-        <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
-          <div className="grid grid-cols-2 gap-4">
-             <div className="p-4 bg-slate-50 rounded-2xl"><p className="text-[9px] font-black text-slate-400 uppercase">Operatore</p><p className="font-bold text-slate-700 text-sm">{report.userName}</p></div>
-             <div className="p-4 bg-slate-50 rounded-2xl"><p className="text-[9px] font-black text-slate-400 uppercase">Ore</p><p className="font-bold text-blue-600 text-xl">{report.hours} h</p></div>
-          </div>
-          <div className="p-5 bg-slate-50 rounded-2xl border border-slate-100">
-             <p className="text-[9px] font-black text-slate-400 uppercase mb-2">Descrizione</p>
-             <p className="text-sm text-slate-600 leading-relaxed whitespace-pre-wrap">{report.desc}</p>
+    <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4 animate-in fade-in" onClick={onClose}>
+      <div className="bg-white w-full max-w-lg rounded-[40px] shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+        <div className="p-8 space-y-5">
+          <div className="flex justify-between items-start border-b pb-4">
+             <div><h3 className="text-xl font-black text-slate-800 uppercase tracking-tighter">Dettaglio</h3><p className="text-[10px] font-black text-slate-400 uppercase">{report.reportDate}</p></div>
+             <div className="flex gap-2">{isAdmin && <button onClick={handleDelete} className="p-3 text-red-500 bg-red-50 rounded-2xl"><Trash2 size={20}/></button>}<button onClick={onClose} className="p-3 text-slate-400 bg-slate-50 rounded-2xl"><X size={20}/></button></div>
           </div>
           <div className="grid grid-cols-2 gap-4">
-             <div className="p-4 bg-slate-50 rounded-2xl border"><p className="text-[9px] font-black text-slate-400 uppercase mb-1">Veicolo</p><div className="flex items-center gap-2 text-slate-700 font-bold text-[10px] truncate"><Truck size={14}/> {report.vehicleName}</div></div>
-             <div className="p-4 bg-slate-50 rounded-2xl border"><p className="text-[9px] font-black text-slate-400 uppercase mb-1">Carburante</p><div className="flex items-center gap-2 text-green-600 font-bold text-[10px]"><Fuel size={14}/> {report.fuelAmount ? `€ ${report.fuelAmount}` : 'No'}</div></div>
+             <div className="p-4 bg-slate-50 rounded-3xl"><p className="text-[9px] font-black text-slate-400 uppercase">Operatore</p><p className="font-bold text-slate-700 text-sm">{report.userName}</p></div>
+             <div className="p-4 bg-slate-50 rounded-3xl"><p className="text-[9px] font-black text-slate-400 uppercase">Durata</p><p className="font-bold text-blue-600 text-xl">{report.hours}h</p></div>
           </div>
-          {report.equipmentUsed && <div className="p-4 bg-blue-50/50 rounded-2xl border border-blue-100"><p className="text-[9px] font-black text-blue-400 uppercase mb-1">Attrezzatura</p><div className="flex items-center gap-2 text-blue-700 font-bold text-[10px]"><Construction size={14}/> {report.equipmentUsed}</div></div>}
+          <div className="p-5 bg-slate-50 rounded-3xl border border-slate-100"><p className="text-[9px] font-black text-slate-400 uppercase mb-2">Descrizione</p><p className="text-sm text-slate-600 whitespace-pre-wrap">{report.desc}</p></div>
+          <div className="grid grid-cols-2 gap-4">
+             <div className="p-4 bg-slate-50 rounded-3xl border"><p className="text-[9px] font-black text-slate-400 uppercase mb-1">Mezzo</p><div className="flex items-center gap-2 text-slate-700 font-bold text-[10px] truncate"><Truck size={14}/> {report.vehicleName}</div></div>
+             <div className="p-4 bg-slate-50 rounded-3xl border"><p className="text-[9px] font-black text-slate-400 uppercase mb-1">Carburante</p><div className="flex items-center gap-2 text-green-600 font-bold text-[10px]"><Fuel size={14}/> {report.fuelAmount ? `€ ${report.fuelAmount}` : 'No'}</div></div>
+          </div>
+          {report.equipmentUsed && <div className="p-4 bg-blue-50/50 rounded-2xl border border-blue-100"><p className="text-[9px] font-black text-blue-400 uppercase mb-1">Attrezzatura</p><div className="flex items-center gap-2 text-blue-700 font-bold text-[10px] uppercase"><Construction size={14}/> {report.equipmentUsed}</div></div>}
         </div>
       </div>
     </div>
@@ -159,7 +148,7 @@ function ReportModal({ report, onClose, canDelete }) {
 
 function SiteOverview({ task, isMaster, isAdmin, userData }) {
   const [stats, setStats] = useState({ mat: 0, hrs: 0, travel: 0 });
-  const nextPhase = task.schedule?.find(p => new Date(p.end) >= new Date());
+  const next = task.schedule?.find(p => new Date(p.end) >= new Date());
 
   useEffect(() => {
     if (!task?.id) return;
@@ -173,13 +162,13 @@ function SiteOverview({ task, isMaster, isAdmin, userData }) {
     return () => { unsubM(); unsubL(); };
   }, [task.id]);
 
-  const handleToggleStatus = async () => {
-    const newStatus = !task.completed;
-    if (newStatus && !window.confirm("Chiudere il cantiere? Tutte le attività saranno bloccate.")) return;
-    if (!newStatus && !isAdmin) return;
+  const toggleStatus = async () => {
+    const status = !task.completed;
+    if (status && !window.confirm("Chiudere definitivamente il cantiere?")) return;
+    if (!status && !isAdmin) return;
     try {
-      await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'tasks', task.id), { completed: newStatus });
-      await logOperation(userData, newStatus ? "Chiusura Cantiere" : "Riapertura Cantiere", task.title);
+      await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'tasks', task.id), { completed: status });
+      await logOperation(userData, status ? "Chiusura" : "Riapertura", task.title);
     } catch (e) { alert("Errore"); }
   };
 
@@ -190,52 +179,45 @@ function SiteOverview({ task, isMaster, isAdmin, userData }) {
 
   return (
     <div className="space-y-6">
-      <div className={`p-6 rounded-[32px] border flex flex-col sm:flex-row justify-between items-center gap-4 ${task.completed ? 'bg-slate-900 border-slate-800 text-white shadow-xl' : 'bg-white border-slate-200 shadow-sm'}`}>
+      <div className={`p-6 rounded-[32px] border flex justify-between items-center ${task.completed ? 'bg-slate-900 border-slate-800 text-white shadow-xl' : 'bg-white border-slate-200 shadow-sm'}`}>
         <div className="flex items-center gap-4">
           <div className={`p-3 rounded-2xl ${task.completed ? 'bg-slate-800 text-green-400' : 'bg-blue-50 text-blue-600'}`}>{task.completed ? <LockKeyhole size={24}/> : <Activity size={24}/>}</div>
-          <div>
-            <h4 className="font-black uppercase tracking-tighter">Stato Operativo</h4>
-            <p className={`text-xs font-bold ${task.completed ? 'text-slate-400' : 'text-blue-500'}`}>{task.completed ? 'CHIUSO / ARCHIVIATO' : 'CANTIERE IN CORSO'}</p>
-          </div>
+          <div><h4 className="font-black uppercase text-[10px] tracking-widest">Stato</h4><p className="text-sm font-bold">{task.completed ? 'CHIUSO' : 'OPERATIVO'}</p></div>
         </div>
         {isMaster && (
-          <div className="flex gap-2 w-full sm:w-auto">
-            {!task.completed ? (
-              <button onClick={handleToggleStatus} className="w-full sm:w-auto bg-red-600 text-white px-6 py-3 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg">Chiudi Cantiere</button>
-            ) : isAdmin && (
-              <button onClick={handleToggleStatus} className="w-full sm:w-auto bg-blue-600 text-white px-6 py-3 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg">Riapri Cantiere</button>
-            )}
-          </div>
+          <button onClick={toggleStatus} className={`px-6 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-lg ${task.completed ? 'bg-blue-600' : 'bg-red-600'} text-white`}>
+            {task.completed ? 'Riapri' : 'Chiudi'}
+          </button>
         )}
       </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white p-5 rounded-3xl border shadow-sm"><p className="text-[9px] font-black text-slate-400 uppercase mb-1">Ore Lavorate</p><p className="text-xl font-black text-slate-800">{stats.hrs} H</p></div>
-        <div className="bg-white p-5 rounded-3xl border shadow-sm"><p className="text-[9px] font-black text-slate-400 uppercase mb-1">Costo Forniture</p><p className="text-xl font-black text-slate-800">€ {stats.mat.toFixed(0)}</p></div>
-        <div className="bg-white p-5 rounded-3xl border shadow-sm"><p className="text-[9px] font-black text-slate-400 uppercase mb-1">Trasferte</p><p className="text-xl font-black text-orange-600">{totals.travel}</p></div>
-        <div className="bg-slate-50 p-5 rounded-3xl border border-slate-200"><p className="text-[9px] font-black text-slate-400 uppercase mb-1">Status Location</p><p className="text-sm font-black text-slate-600 uppercase">{task.isTrasfertaSite ? 'Fuori Sede' : 'Locale'}</p><button onClick={toggleTravelSite} className="text-[9px] text-blue-500 font-bold mt-2 hover:underline">{isAdmin && !task.completed ? 'MODIFICA' : ''}</button></div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="bg-white p-5 rounded-3xl border text-center shadow-sm"><p className="text-[9px] font-black text-slate-400 uppercase mb-1">Ore</p><p className="text-xl font-black text-slate-800">{stats.hrs} H</p></div>
+        <div className="bg-white p-5 rounded-3xl border text-center shadow-sm"><p className="text-[9px] font-black text-slate-400 uppercase mb-1">Materiali</p><p className="text-xl font-black text-slate-800">€ {stats.mat.toFixed(0)}</p></div>
+        <div className="bg-white p-5 rounded-3xl border text-center shadow-sm"><p className="text-[9px] font-black text-slate-400 uppercase mb-1">Trasferte</p><p className="text-xl font-black text-orange-600">{stats.travel}</p></div>
+        <div className="bg-slate-50 p-5 rounded-3xl border text-center"><p className="text-[9px] font-black text-slate-400 uppercase mb-1">Zona</p><p className="text-xs font-bold truncate uppercase">{task.isTrasfertaSite ? 'Fuori Sede' : 'Locale'}</p>{isAdmin && !task.completed && <button onClick={toggleTravelSite} className="text-[9px] text-blue-500 font-bold mt-1 underline">CAMBIA</button>}</div>
       </div>
     </div>
   );
 }
 
-function SiteReportsList({ taskId, isMaster, userData, isAdminFull }) {
+function SiteReportsList({ taskId, isMaster, userData, isAdmin }) {
   const [reports, setReports] = useState([]);
   const [selected, setSelected] = useState(null);
 
   useEffect(() => {
-    // FIX: Rimosso orderBy per evitare necessità di indice composto. Ordinamento lato client.
-    const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'daily_reports'), where('taskId', '==', taskId));
+    // Caricamento con query semplice + filtro locale per evitare errori di indice
+    const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'daily_reports'));
     return onSnapshot(q, (snap) => {
       const all = snap.docs.map(d => ({id: d.id, ...d.data()}))
-        .sort((a,b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)); // Ordinamento in memoria
+        .filter(r => r.taskId === taskId)
+        .sort((a,b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
       setReports(isMaster ? all : all.filter(r => r.userName === userData.name));
     });
   }, [taskId, isMaster, userData?.name]);
 
   return (
     <div className="space-y-4 animate-in fade-in">
-      {reports.length === 0 && <p className="text-center py-20 text-slate-300 font-black uppercase text-[10px]">Nessun rapporto trovato</p>}
+      {reports.length === 0 && <p className="text-center py-20 text-slate-300 font-black uppercase text-[10px]">Nessun rapporto</p>}
       {reports.map(r => (
         <div key={r.id} onClick={()=>setSelected(r)} className="p-6 bg-white border rounded-[36px] flex justify-between items-center shadow-sm cursor-pointer hover:border-blue-300 transition-all border-slate-100 group">
           <div className="flex-1 min-w-0 pr-4">
@@ -249,7 +231,7 @@ function SiteReportsList({ taskId, isMaster, userData, isAdminFull }) {
           <div className="text-right ml-4"><p className="text-2xl font-black text-slate-800 leading-none">{r.hours}<span className="text-xs">h</span></p></div>
         </div>
       ))}
-      {selected && <ReportModal report={selected} onClose={()=>setSelected(null)} canDelete={isAdminFull} />}
+      {selected && <ReportModal report={selected} onClose={()=>setSelected(null)} canDelete={isAdmin} />}
     </div>
   );
 }
@@ -258,44 +240,24 @@ function SiteChat({ taskId, userData, isClosed }) {
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
   const scrollRef = useRef(null);
-
   useEffect(() => {
-    // FIX: Rimosso orderBy per evitare necessità di indice composto. Ordinamento lato client.
-    const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'site_chats'), where('taskId', '==', taskId));
+    // Query semplice
+    const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'site_chats'));
     return onSnapshot(q, (snap) => {
-      const msgs = snap.docs.map(d => ({id: d.id, ...d.data()})).sort((a,b) => (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0));
+      const msgs = snap.docs.map(d => ({id: d.id, ...d.data()})).filter(m => m.taskId === taskId).sort((a,b) => (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0));
       setMessages(msgs);
       if(scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     });
   }, [taskId]);
-
   const sendMessage = async (e) => {
-    e.preventDefault();
-    if(isClosed || !newMessage.trim()) return;
-    await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'site_chats'), {
-      taskId, userId: userData.uid, userName: userData.name, message: newMessage, createdAt: serverTimestamp()
-    });
+    e.preventDefault(); if(isClosed || !newMessage.trim()) return;
+    await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'site_chats'), { taskId, userId: userData.uid, userName: userData.name, message: newMessage, createdAt: serverTimestamp() });
     setNewMessage('');
   };
-
   return (
-    <div className="flex flex-col h-[400px] bg-white rounded-3xl border overflow-hidden shadow-sm">
-      <div className="flex-1 p-4 overflow-y-auto bg-slate-50 space-y-4" ref={scrollRef}>
-        {messages.map(msg => (
-          <div key={msg.id} className={`flex flex-col ${msg.userId === userData.uid ? 'items-end' : 'items-start'}`}>
-            <div className={`max-w-[85%] px-4 py-2 rounded-2xl text-sm ${msg.userId === userData.uid ? 'bg-blue-600 text-white rounded-br-none' : 'bg-white border text-slate-800 rounded-bl-none shadow-sm'}`}>
-              {msg.userId !== userData.uid && <p className="text-[10px] font-black text-blue-600 mb-1 uppercase">{msg.userName}</p>}
-              {msg.message}
-            </div>
-          </div>
-        ))}
-      </div>
-      {!isClosed ? (
-        <form onSubmit={sendMessage} className="p-3 bg-white border-t flex gap-2">
-          <input className="flex-1 bg-slate-100 border-none rounded-xl px-4 py-2 text-sm outline-none" placeholder="Messaggio..." value={newMessage} onChange={e=>setNewMessage(e.target.value)} />
-          <button type="submit" className="bg-blue-600 text-white p-2 rounded-xl active:scale-90 transition-transform"><Send size={18}/></button>
-        </form>
-      ) : <div className="p-4 text-center text-xs text-slate-400 font-bold uppercase border-t">Cantiere Chiuso</div>}
+    <div className="flex flex-col h-[450px] bg-white rounded-[40px] border overflow-hidden shadow-sm">
+      <div className="flex-1 p-6 overflow-y-auto bg-slate-50 space-y-4" ref={scrollRef}>{messages.map(msg => (<div key={msg.id} className={`flex flex-col ${msg.userId === userData.uid ? 'items-end' : 'items-start'}`}><div className={`max-w-[85%] px-4 py-2 rounded-2xl text-sm ${msg.userId === userData.uid ? 'bg-blue-600 text-white rounded-br-none' : 'bg-white border text-slate-800 rounded-bl-none shadow-sm'}`}>{msg.userId !== userData.uid && <p className="text-[10px] font-black text-blue-600 mb-1 uppercase">{msg.userName}</p>}{msg.message}</div></div>))}</div>
+      {!isClosed ? <form onSubmit={sendMessage} className="p-4 bg-white border-t flex gap-2"><input className="flex-1 bg-slate-100 border-none rounded-xl px-4 py-2 text-sm outline-none font-bold" placeholder="Messaggio..." value={newMessage} onChange={e=>setNewMessage(e.target.value)} /><button type="submit" className="bg-blue-600 text-white p-3 rounded-2xl active:scale-90 transition-transform"><Send size={20}/></button></form> : <div className="p-4 text-center text-[10px] font-black uppercase text-slate-400 border-t tracking-widest">Cantiere Chiuso</div>}
     </div>
   );
 }
@@ -304,42 +266,12 @@ function SiteTeam({ task, isAdmin }) {
   const [assigned, setAssigned] = useState(task.assignedTeam || []);
   const [selectedUser, setSelectedUser] = useState('');
   const allStaff = Object.values(USERS_CONFIG);
-
   useEffect(() => { setAssigned(task.assignedTeam || []); }, [task.assignedTeam]);
-
-  const handleAssign = async () => {
-    if(!selectedUser || !isAdmin || task.completed) return;
-    await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'tasks', task.id), { assignedTeam: arrayUnion(selectedUser) });
-    setSelectedUser('');
-  };
-
+  const handleAssign = async () => { if(!selectedUser || !isAdmin || task.completed) return; await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'tasks', task.id), { assignedTeam: arrayUnion(selectedUser) }); setSelectedUser(''); };
   return (
     <div className="space-y-4">
-      {isAdmin && !task.completed && (
-        <div className="flex gap-2">
-          <select value={selectedUser} onChange={e=>setSelectedUser(e.target.value)} className="flex-1 border rounded-xl p-3 text-sm font-bold bg-white outline-none">
-            <option value="">-- Seleziona Personale --</option>
-            {allStaff.map(u => <option key={u.name} value={u.name} disabled={assigned.includes(u.name)}>{u.name} ({u.role})</option>)}
-          </select>
-          <button onClick={handleAssign} className="bg-blue-600 text-white px-8 rounded-2xl font-black text-xs uppercase shadow-lg">Aggiungi</button>
-        </div>
-      )}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        {assigned.map(name => {
-          const staff = allStaff.find(u => u.name === name);
-          return (
-            <div key={name} className="p-4 bg-white border rounded-[28px] flex justify-between items-center shadow-sm border-slate-100">
-              <div className="flex items-center gap-4">
-                <div className={`w-10 h-10 rounded-2xl flex items-center justify-center font-black text-sm ${staff?.role === 'Master' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
-                  {name.charAt(0)}
-                </div>
-                <span className="text-sm font-black text-slate-800 uppercase tracking-tighter">{name}</span>
-              </div>
-              {isAdmin && !task.completed && <button onClick={async () => await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'tasks', task.id), { assignedTeam: arrayRemove(name) })} className="text-red-400 hover:bg-red-50 p-2 rounded-xl transition-colors"><X size={18}/></button>}
-            </div>
-          );
-        })}
-      </div>
+      {isAdmin && !task.completed && <div className="flex gap-2"><select value={selectedUser} onChange={e=>setSelectedUser(e.target.value)} className="flex-1 border rounded-xl p-3 text-sm font-bold bg-white outline-none"><option value="">-- Seleziona Operatore --</option>{allStaff.map(u => <option key={u.name} value={u.name} disabled={assigned.includes(u.name)}>{u.name} ({u.role})</option>)}</select><button onClick={handleAssign} className="bg-blue-600 text-white px-8 rounded-2xl font-black text-xs uppercase shadow-lg shadow-blue-100">Aggiungi</button></div>}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">{assigned.map(name => { const staff = allStaff.find(u => u.name === name); return (<div key={name} className="p-4 bg-white border rounded-[28px] flex justify-between items-center shadow-sm border-slate-100"><div className="flex items-center gap-4"><div className={`w-10 h-10 rounded-2xl flex items-center justify-center font-black text-sm ${staff?.role === 'Master' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>{name.charAt(0)}</div><span className="text-sm font-black text-slate-800 uppercase tracking-tighter">{name}</span></div>{isAdmin && !task.completed && <button onClick={async () => await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'tasks', task.id), { assignedTeam: arrayRemove(name) })} className="text-red-400 hover:bg-red-50 p-2 rounded-xl transition-colors"><X size={18}/></button>}</div>); })}</div>
     </div>
   );
 }
@@ -347,31 +279,19 @@ function SiteTeam({ task, isAdmin }) {
 function SiteDocuments({ taskId, isAdmin, userData, isClosed }) {
   const [docs, setDocs] = useState([]);
   const [uploading, setUploading] = useState(false);
-  useEffect(() => {
-    const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'documents'), where('taskId', '==', taskId));
-    return onSnapshot(q, (snap) => setDocs(snap.docs.map(d => ({id: d.id, ...d.data()}))));
-  }, [taskId]);
+  useEffect(() => { const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'documents'), where('taskId', '==', taskId)); return onSnapshot(q, (snap) => setDocs(snap.docs.map(d => ({id: d.id, ...d.data()})))); }, [taskId]);
   const handleUpload = async (e) => {
     if(isClosed) return;
     const file = e.target.files[0]; if(!file) return;
     setUploading(true);
     const reader = new FileReader();
-    reader.onloadend = async () => {
-      await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'documents'), {
-        taskId, name: file.name, data: reader.result, uploadedBy: userData.name, createdAt: serverTimestamp()
-      });
-      setUploading(false);
-    };
+    reader.onloadend = async () => { await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'documents'), { taskId, name: file.name, data: reader.result, uploadedBy: userData.name, createdAt: serverTimestamp() }); setUploading(false); };
     reader.readAsDataURL(file);
   };
   return (
     <div className="space-y-4">
       {isAdmin && !isClosed && <div className="bg-white p-5 rounded-[32px] border border-dashed border-slate-300 flex justify-between items-center"><p className="text-xs font-black text-slate-500 uppercase tracking-widest">Carica File</p><input type="file" onChange={handleUpload} className="text-xs" /></div>}
-      <div className="grid gap-3">
-        {docs.map(d => (
-          <div key={d.id} className="flex items-center justify-between p-5 bg-white border rounded-[28px] shadow-sm"><div className="flex items-center gap-4"><FileText className="text-blue-500" size={18}/><span className="text-sm font-black uppercase tracking-tighter">{d.name}</span></div><a href={d.data} download={d.name} className="p-3 bg-slate-50 hover:bg-blue-600 hover:text-white rounded-2xl transition-all"><Download size={20}/></a></div>
-        ))}
-      </div>
+      <div className="grid gap-3">{docs.map(d => (<div key={d.id} className="flex items-center justify-between p-5 bg-white border rounded-[28px] shadow-sm"><div className="flex items-center gap-4"><FileText className="text-blue-500" size={18}/><span className="text-sm font-black uppercase tracking-tighter">{d.name}</span></div><a href={d.data} download={d.name} className="p-3 bg-slate-50 hover:bg-blue-600 hover:text-white rounded-2xl transition-all"><Download size={20}/></a></div>))}</div>
     </div>
   );
 }
@@ -380,30 +300,11 @@ function SiteSchedule({ task, isAdmin }) {
   const [schedule, setSchedule] = useState(task.schedule || []);
   const [newPhase, setNewPhase] = useState({ name: '', start: '', end: '' });
   useEffect(() => { setSchedule(task.schedule || []); }, [task.schedule]);
-  const addPhase = async (e) => {
-    e.preventDefault(); if(!isAdmin || !newPhase.name || !newPhase.start || !newPhase.end || task.completed) return;
-    const updated = [...schedule, newPhase].sort((a,b) => new Date(a.start) - new Date(b.start));
-    await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'tasks', task.id), { schedule: updated });
-    setNewPhase({ name: '', start: '', end: '' });
-  };
+  const addPhase = async (e) => { e.preventDefault(); if(!isAdmin || !newPhase.name || !newPhase.start || !newPhase.end || task.completed) return; const updated = [...schedule, newPhase].sort((a,b) => new Date(a.start) - new Date(b.start)); await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'tasks', task.id), { schedule: updated }); setNewPhase({ name: '', start: '', end: '' }); };
   return (
     <div className="space-y-4">
-      {isAdmin && !task.completed && (
-        <form onSubmit={addPhase} className="bg-white p-5 rounded-[32px] border grid grid-cols-1 md:grid-cols-4 gap-4 shadow-sm">
-          <input placeholder="Fase" className="bg-slate-50 border-none rounded-2xl p-4 font-bold text-sm outline-none shadow-inner" value={newPhase.name} onChange={e=>setNewPhase({...newPhase, name: e.target.value})} />
-          <input type="date" className="bg-slate-50 border-none rounded-2xl p-4 font-bold text-sm outline-none shadow-inner" value={newPhase.start} onChange={e=>setNewPhase({...newPhase, start: e.target.value})} />
-          <input type="date" className="bg-slate-50 border-none rounded-2xl p-4 font-bold text-sm outline-none shadow-inner" value={newPhase.end} onChange={e=>setNewPhase({...newPhase, end: e.target.value})} />
-          <button type="submit" className="bg-blue-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg">Salva</button>
-        </form>
-      )}
-      <div className="space-y-3">
-        {schedule.map((p, i) => (
-          <div key={i} className="p-5 bg-white border rounded-[32px] flex justify-between items-center shadow-sm relative overflow-hidden">
-            <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-blue-500"></div>
-            <div><p className="font-black text-slate-800 uppercase tracking-tighter">{String(p.name)}</p><p className="text-[10px] font-black text-slate-400 mt-1 uppercase tracking-widest">{new Date(p.start).toLocaleDateString()} — {new Date(p.end).toLocaleDateString()}</p></div>
-          </div>
-        ))}
-      </div>
+      {isAdmin && !task.completed && <form onSubmit={addPhase} className="bg-white p-5 rounded-[32px] border grid grid-cols-1 md:grid-cols-4 gap-4 shadow-sm"><input placeholder="Fase" className="bg-slate-50 border-none rounded-2xl p-4 font-bold text-sm outline-none shadow-inner" value={newPhase.name} onChange={e=>setNewPhase({...newPhase, name: e.target.value})} /><input type="date" className="bg-slate-50 border-none rounded-2xl p-4 font-bold text-sm outline-none shadow-inner" value={newPhase.start} onChange={e=>setNewPhase({...newPhase, start: e.target.value})} /><input type="date" className="bg-slate-50 border-none rounded-2xl p-4 font-bold text-sm outline-none shadow-inner" value={newPhase.end} onChange={e=>setNewPhase({...newPhase, end: e.target.value})} /><button type="submit" className="bg-blue-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg">Salva</button></form>}
+      <div className="space-y-3">{schedule.map((p, i) => (<div key={i} className="p-5 bg-white border rounded-[32px] flex justify-between items-center shadow-sm relative overflow-hidden"><div className="absolute left-0 top-0 bottom-0 w-1.5 bg-blue-500"></div><div><p className="font-black text-slate-800 uppercase tracking-tighter">{String(p.name)}</p><p className="text-[10px] font-black text-slate-400 mt-1 uppercase tracking-widest">{new Date(p.start).toLocaleDateString()} — {new Date(p.end).toLocaleDateString()}</p></div></div>))}</div>
     </div>
   );
 }
@@ -413,21 +314,7 @@ function SitePhotos({ taskId, userData, isAdmin, isClosed }) {
   useEffect(() => { const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'photos'), where('taskId', '==', taskId)); return onSnapshot(q, (snap) => setPhotos(snap.docs.map(d => ({id: d.id, ...d.data()})))); }, [taskId]);
   const handleUpload = async (e) => { if(isClosed) return; const file = e.target.files[0]; if(!file) return; setUploading(true); const reader = new FileReader(); reader.onloadend = async () => { await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'photos'), { taskId, imageData: reader.result, uploaderName: userData.name, createdAt: serverTimestamp(), userId: userData.uid }); setUploading(false); }; reader.readAsDataURL(file); };
   return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center bg-white p-5 rounded-[32px] border shadow-sm">
-        <h3 className="font-black text-slate-800 uppercase tracking-tighter">Album Fotografico</h3>
-        {!isClosed && <input type="file" onChange={handleUpload} className="text-xs font-bold" accept="image/*" />}
-      </div>
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        {photos.map(p => (
-          <div key={p.id} onClick={() => setLightbox(p.imageData)} className="aspect-square bg-slate-100 rounded-[32px] overflow-hidden cursor-pointer border-4 border-white shadow-sm hover:scale-105 transition-all relative group">
-            <img src={p.imageData} className="w-full h-full object-cover" alt="Site" />
-            <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity"><Maximize2 className="text-white"/></div>
-          </div>
-        ))}
-      </div>
-      {lightbox && <div className="fixed inset-0 bg-black/95 z-50 flex items-center justify-center p-4 animate-in fade-in" onClick={()=>setLightbox(null)}><button className="absolute top-6 right-6 text-white"><X size={32}/></button><img src={lightbox} className="max-w-full max-h-full rounded-lg shadow-2xl object-contain" alt="Fullscreen" /></div>}
-    </div>
+    <div className="space-y-6"><div className="flex justify-between items-center bg-white p-5 rounded-[32px] border shadow-sm"><h3 className="font-black text-slate-800 uppercase tracking-tighter">Album Fotografico</h3>{!isClosed && <input type="file" onChange={handleUpload} className="text-xs font-bold" accept="image/*" />}</div><div className="grid grid-cols-2 sm:grid-cols-4 gap-4">{photos.map(p => (<div key={p.id} onClick={() => setLightbox(p.imageData)} className="aspect-square bg-slate-100 rounded-[32px] overflow-hidden cursor-pointer border-4 border-white shadow-sm hover:scale-105 transition-all relative group"><img src={p.imageData} className="w-full h-full object-cover" alt="Site" /><div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity"><Maximize2 className="text-white"/></div></div>))}</div>{lightbox && <div className="fixed inset-0 bg-black/95 z-50 flex items-center justify-center p-4 animate-in fade-in" onClick={()=>setLightbox(null)}><button className="absolute top-6 right-6 text-white"><X size={32}/></button><img src={lightbox} className="max-w-full max-h-full rounded-lg shadow-2xl object-contain" alt="Fullscreen" /></div>}</div>
   );
 }
 
@@ -436,14 +323,7 @@ function MaterialRequestsView({ taskId, userData, isClosed }) {
   useEffect(() => { const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'material_requests'), where('taskId', '==', taskId)); return onSnapshot(q, (snap) => setRequests(snap.docs.map(d => ({id: d.id, ...d.data()})))); }, [taskId]);
   const add = async (e) => { e.preventDefault(); if(isClosed || !item.trim()) return; await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'material_requests'), { taskId, item, status: 'pending', userName: userData.name, createdAt: serverTimestamp() }); setItem(''); };
   return (
-    <div className="space-y-4">
-      {!isClosed && <form onSubmit={add} className="flex gap-2 bg-white p-3 rounded-[32px] border shadow-sm"><input value={item} onChange={e=>setItem(e.target.value)} placeholder="Di cosa hai bisogno?" className="flex-1 bg-transparent px-4 py-1 outline-none text-sm font-bold" /><button className="bg-blue-600 text-white px-8 py-3 rounded-2xl font-black text-xs uppercase shadow-lg">Invia</button></form>}
-      <div className="space-y-3">
-        {requests.map(r => (
-          <div key={r.id} className="p-5 bg-white border rounded-[32px] flex justify-between items-center shadow-sm"><div><p className="text-sm font-black text-slate-800 uppercase tracking-tighter leading-none">{r.item}</p><p className="text-[10px] text-slate-400 mt-2 uppercase font-black tracking-widest">Dip: {r.userName}</p></div><span className={`text-[9px] font-black px-4 py-1 rounded-lg ${r.status === 'pending' ? 'bg-yellow-50 text-yellow-600 border border-yellow-100' : 'bg-green-50 text-green-600 border border-green-100'}`}>{r.status.toUpperCase()}</span></div>
-        ))}
-      </div>
-    </div>
+    <div className="space-y-4">{!isClosed && <form onSubmit={add} className="flex gap-2 bg-white p-3 rounded-[32px] border shadow-sm"><input value={item} onChange={e=>setItem(e.target.value)} placeholder="Di cosa hai bisogno?" className="flex-1 bg-transparent px-4 py-1 outline-none text-sm font-bold" /><button className="bg-blue-600 text-white px-8 py-3 rounded-2xl font-black text-xs uppercase shadow-lg">Invia</button></form>}<div className="space-y-3">{requests.map(r => (<div key={r.id} className="p-5 bg-white border rounded-[32px] flex justify-between items-center shadow-sm"><div><p className="text-sm font-black text-slate-800 uppercase tracking-tighter leading-none">{r.item}</p><p className="text-[10px] text-slate-400 mt-2 uppercase font-black tracking-widest">Dip: {r.userName}</p></div><span className={`text-[9px] font-black px-4 py-1 rounded-lg ${r.status === 'pending' ? 'bg-yellow-50 text-yellow-600 border border-yellow-100' : 'bg-green-50 text-green-600 border border-green-100'}`}>{r.status.toUpperCase()}</span></div>))}</div></div>
   );
 }
 
@@ -495,8 +375,8 @@ function TasksView({ userData, isAdmin, onSelectTask }) {
       {isFormOpen && (
         <form onSubmit={addTask} className="bg-white p-10 rounded-[40px] border shadow-2xl space-y-5 animate-in slide-in-from-top-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <input placeholder="Titolo Cantiere" className="bg-slate-50 border-none rounded-2xl p-5 outline-none font-bold" onChange={e=>setNewTask({...newTask, title: e.target.value})} required />
-            <input placeholder="Cliente" className="bg-slate-50 border-none rounded-2xl p-5 outline-none font-bold" onChange={e=>setNewTask({...newTask, client: e.target.value})} required />
+            <input placeholder="Titolo Cantiere" className="bg-slate-50 border-none rounded-2xl p-5 outline-none font-bold text-lg" onChange={e=>setNewTask({...newTask, title: e.target.value})} required />
+            <input placeholder="Cliente" className="bg-slate-50 border-none rounded-2xl p-5 outline-none font-bold text-lg" onChange={e=>setNewTask({...newTask, client: e.target.value})} required />
           </div>
           <div className="flex items-center gap-3 bg-slate-50 p-4 rounded-2xl shadow-inner">
              <input type="checkbox" className="w-5 h-5 accent-blue-600" onChange={e=>setNewTask({...newTask, isTrasfertaSite: e.target.checked})} />
@@ -526,10 +406,16 @@ function DailyReportsView({ userData, tasks, isMaster, isAdminFull }) {
   const [selected, setSelected] = useState(null);
 
   useEffect(() => {
+    // Caricamento con query semplice + ordinamento in memoria per stabilità
     const q = isMaster 
-      ? query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'daily_reports'), orderBy('createdAt', 'desc'), limit(50))
-      : query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'daily_reports'), where('userName', '==', userData.name), orderBy('createdAt', 'desc'), limit(50));
-    return onSnapshot(q, s => setReports(s.docs.map(d=>({id:d.id, ...d.data()}))));
+      ? query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'daily_reports'))
+      : query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'daily_reports'), where('userName', '==', userData.name));
+      
+    return onSnapshot(q, (snap) => {
+      const all = snap.docs.map(d => ({id: d.id, ...d.data()}))
+        .sort((a,b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+      setReports(all);
+    });
   }, [isMaster, userData?.name]);
 
   const submit = async (e) => {
@@ -613,9 +499,9 @@ function PersonalAreaView({ user, userData, isMaster, isAdmin }) {
          <div className="flex items-center gap-5 w-full sm:w-auto"><div className="w-16 h-16 bg-blue-600 rounded-3xl flex items-center justify-center text-white text-2xl font-black shadow-xl uppercase">{userData?.name?.charAt(0)}</div><div className="flex-1 overflow-hidden"><h2 className="text-2xl font-black text-slate-800 tracking-tighter uppercase truncate leading-none">{userData?.name}</h2>{isMaster && <select className="mt-3 text-[10px] font-black uppercase tracking-widest text-blue-600 bg-blue-50 border-none rounded-xl p-2 outline-none cursor-pointer w-full shadow-inner" value={targetUser} onChange={(e) => setTargetUser(e.target.value)}><option value={user.uid}>Mio Profilo Personale</option>{usersList.map(u => (<option key={u.username} value={u.username}>Vedi: {u.name}</option>))}</select>}</div></div>
          <div className="flex gap-4 w-full sm:w-auto overflow-x-auto scrollbar-hide"><button onClick={()=>setSub('leaves')} className={`flex-1 sm:px-6 py-2 text-xs font-black uppercase tracking-widest transition-all ${sub === 'leaves' ? 'bg-blue-600 text-white rounded-2xl shadow-lg' : 'text-slate-400'}`}>Ferie</button>{isMaster && <button onClick={()=>setSub('logs')} className={`flex-1 sm:px-6 py-2 text-xs font-black uppercase tracking-widest transition-all ${sub === 'logs' ? 'bg-blue-600 text-white rounded-2xl shadow-lg' : 'text-slate-400'}`}>Log</button>}</div>
        </div>
-       {sub === 'leaves' && <LeaveRequestsPanel currentUser={user} targetIdentifier={targetUser} isAdmin={isAdmin} userData={userData} />}
+       {sub === 'leaves' && <LeaveRequestsPanel currentUser={user} targetIdentifier={targetUser} isMaster={isMaster} isAdmin={isAdmin} userData={userData} />}
        {sub === 'logs' && isMaster && (
-          <div className="bg-white border rounded-[32px] overflow-hidden shadow-sm overflow-x-auto animate-in fade-in"><table className="w-full text-left text-xs"><thead className="bg-slate-50 text-slate-400 font-black uppercase tracking-widest border-b"><tr><th className="p-5">Membro</th><th className="p-5">Azione</th><th className="p-5">Data</th></tr></thead><tbody className="divide-y">{logs.map(l=>(<tr key={l.id} className="hover:bg-slate-50 transition-colors"><td className="p-5 font-bold uppercase text-[10px]">{l.userName}</td><td className="p-5">{l.action}</td><td className="p-5 text-[9px] text-slate-400">{formatTimestamp(l.createdAt)}</td></tr>))}</tbody></table></div>
+          <div className="bg-white border rounded-[32px] overflow-hidden shadow-sm overflow-x-auto animate-in fade-in"><table className="w-full text-left text-xs"><thead className="bg-slate-50 text-slate-400 font-black uppercase tracking-widest border-b"><tr><th className="p-5">Membro</th><th className="p-5">Azione</th><th className="p-5">GPS</th><th className="p-5">Data</th></tr></thead><tbody className="divide-y">{logs.map(l=>(<tr key={l.id} className="hover:bg-slate-50 transition-colors"><td className="p-5 font-bold uppercase text-[10px]">{l.userName}</td><td className="p-5">{l.action}</td><td className="p-5 font-mono text-blue-500 uppercase text-[9px]">{l.location}</td><td className="p-5 text-slate-400">{formatTimestamp(l.createdAt)}</td></tr>))}</tbody></table></div>
        )}
     </div>
   );
@@ -649,9 +535,9 @@ function LeaveRequestsPanel({ currentUser, targetIdentifier, isAdmin, userData }
       <div className={`col-span-1 ${targetIdentifier === currentUser.uid ? 'md:col-span-2' : 'md:col-span-3'} space-y-3`}>
         {leaves.map(req => (
             <div key={req.id} className="bg-white p-6 rounded-[32px] border shadow-sm flex justify-between items-center border-slate-100">
-              <div><div className="flex items-center gap-3"><span className={`px-3 py-1 rounded-lg text-[9px] font-black tracking-widest ${req.status === 'approved' ? 'bg-green-100 text-green-700' : (req.status === 'rejected' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700')}`}>{req.status.toUpperCase()}</span><h4 className="font-bold text-slate-800 uppercase tracking-tighter">{req.type}</h4></div><p className="text-sm text-slate-500 mt-2 font-bold">{req.start} — {req.end}</p></div>
+              <div><div className="flex items-center gap-3"><span className={`px-3 py-1 rounded-lg text-[9px] font-black tracking-widest ${req.status === 'approved' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>{req.status.toUpperCase()}</span><h4 className="font-bold text-slate-800 uppercase tracking-tighter">{req.type}</h4></div><p className="text-sm text-slate-500 mt-2 font-bold">{req.start} — {req.end}</p></div>
               {isAdmin && targetIdentifier !== currentUser.uid && req.status === 'pending' && (
-                <div className="flex gap-2"><button onClick={() => handleStatus(req.id, 'approved')} className="bg-green-600 text-white px-5 py-2 rounded-xl text-xs font-black uppercase tracking-widest shadow-md transition-all hover:scale-105">Sì</button><button onClick={() => handleStatus(req.id, 'rejected')} className="bg-red-50 text-red-600 px-5 py-2 rounded-xl text-xs font-black uppercase border border-red-100 transition-all hover:bg-red-100">No</button></div>
+                <div className="flex gap-2"><button onClick={() => handleStatus(req.id, 'approved')} className="bg-green-600 text-white px-5 py-2 rounded-xl text-xs font-black uppercase tracking-widest shadow-md transition-all hover:scale-105">Ok</button><button onClick={() => handleStatus(req.id, 'rejected')} className="bg-red-50 text-red-600 px-5 py-2 rounded-xl text-xs font-black uppercase border border-red-100 transition-all hover:bg-red-100">No</button></div>
               )}
             </div>
           ))}
@@ -661,7 +547,7 @@ function LeaveRequestsPanel({ currentUser, targetIdentifier, isAdmin, userData }
   );
 }
 
-// --- CONTAINER PRINCIPALI ---
+// --- LAYOUT E ROUTING ---
 
 function TaskDetailContainer({ task, userData, isMaster, isAdminFull, onBack }) {
   const [active, setActive] = useState('overview');
@@ -690,15 +576,15 @@ function TaskDetailContainer({ task, userData, isMaster, isAdminFull, onBack }) 
         </div>
       </div>
       <div className="mt-4">
-        {active === 'overview' && <SiteOverview task={task} isMaster={isMaster} isAdmin={isAdminFull} userData={userData} />}
+        {active === 'overview' && <SiteOverview task={task} isMaster={isMaster} isAdminFull={isAdminFull} userData={userData} />}
         {active === 'chat' && <SiteChat taskId={task.id} userData={userData} isClosed={isClosed} />}
         {active === 'reports' && <SiteReportsList taskId={task.id} isMaster={isMaster} userData={userData} isAdminFull={isAdminFull} />}
-        {active === 'team' && <SiteTeam task={task} isAdminFull={isAdminFull} />}
-        {active === 'documents' && <SiteDocuments taskId={task.id} isAdminFull={isAdminFull} userData={userData} isClosed={isClosed} />}
-        {active === 'schedule' && <SiteSchedule task={task} isAdminFull={isAdminFull} />}
+        {active === 'team' && <SiteTeam task={task} isAdmin={isAdminFull} />}
+        {active === 'documents' && <SiteDocuments taskId={task.id} isAdmin={isAdminFull} userData={userData} isClosed={isClosed} />}
+        {active === 'schedule' && <SiteSchedule task={task} isAdmin={isAdminFull} />}
         {active === 'accounting' && isMaster && <SiteAccounting taskId={task.id} />}
         {active === 'requests' && <MaterialRequestsView taskId={task.id} userData={userData} isClosed={isClosed} />}
-        {active === 'photos' && <SitePhotos taskId={task.id} userData={userData} isAdminFull={isAdminFull} isClosed={isClosed} />}
+        {active === 'photos' && <SitePhotos taskId={task.id} userData={userData} isAdmin={isAdminFull} isClosed={isClosed} />}
         {active === 'materials' && <MaterialsView context="site" taskId={task.id} />}
       </div>
     </div>
@@ -712,7 +598,7 @@ function AuthScreen() {
     try { await signInWithEmailAndPassword(auth, email, password); } catch (err) { setError("Credenziali non valide"); } finally { setIsSubmitting(false); }
   };
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 bg-slate-100"><div className="max-w-md w-full bg-white rounded-[48px] shadow-2xl overflow-hidden border"><div className="bg-blue-800 p-12 text-center text-white"><div className="w-24 h-24 bg-white mx-auto rounded-3xl mb-8 flex items-center justify-center shadow-xl font-black text-blue-800 text-3xl">IA</div><h1 className="text-3xl font-black uppercase tracking-tighter">Impresadaria</h1><p className="text-blue-200 text-[10px] font-black uppercase tracking-widest mt-1">Impresa d'Aria Srl</p></div><form onSubmit={handleAuth} className="p-10 space-y-5">{error && <div className="p-4 bg-red-50 text-red-700 text-xs font-bold rounded-2xl">{error}</div>}<div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-4">User</label><input type="text" value={username} onChange={e=>setUsername(e.target.value)} required className="w-full bg-slate-50 border-none rounded-2xl p-4 outline-none font-bold" /></div><div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-4">Pass</label><input type="password" value={password} onChange={e=>setPassword(e.target.value)} required className="w-full bg-slate-50 border-none rounded-2xl p-4 outline-none font-bold" /></div><button type="submit" disabled={isSubmitting} className="w-full bg-blue-600 text-white py-5 rounded-[24px] font-black uppercase shadow-xl">{isSubmitting ? "..." : "Entra"}</button></form></div></div>
+    <div className="min-h-screen flex items-center justify-center p-4 bg-slate-100"><div className="max-w-md w-full bg-white rounded-[48px] shadow-2xl overflow-hidden border"><div className="bg-blue-800 p-12 text-center text-white"><div className="w-24 h-24 bg-white mx-auto rounded-3xl mb-8 flex items-center justify-center shadow-xl font-black text-blue-800 text-3xl">IA</div><h1 className="text-3xl font-black uppercase tracking-tighter">Impresadaria</h1></div><form onSubmit={handleAuth} className="p-10 space-y-5">{error && <div className="p-4 bg-red-50 text-red-700 text-xs font-bold rounded-2xl">{error}</div>}<div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-4">User</label><input type="text" value={username} onChange={e=>setUsername(e.target.value)} required className="w-full bg-slate-50 border-none rounded-2xl p-4 outline-none font-bold" /></div><div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-4">Pass</label><input type="password" value={password} onChange={e=>setPassword(e.target.value)} required className="w-full bg-slate-50 border-none rounded-2xl p-4 outline-none font-bold" /></div><button type="submit" disabled={isSubmitting} className="w-full bg-blue-600 text-white py-5 rounded-[24px] font-black uppercase shadow-xl">{isSubmitting ? "..." : "Entra"}</button></form></div></div>
   );
 }
 
@@ -752,7 +638,7 @@ function DashboardContainer({ user, userData }) {
   return (
     <div className="pb-24">
       <header className="bg-white/90 backdrop-blur-md border-b sticky top-0 z-40 h-20 flex items-center justify-between px-6 shadow-sm"><div className="flex items-center gap-4"><div className="bg-blue-600 p-2.5 rounded-2xl text-white shadow-xl shadow-blue-200"><LayoutDashboard size={20} /></div><div className="hidden sm:block"><h1 className="font-black text-slate-800 uppercase tracking-tighter text-xl leading-none">Impresadaria</h1><span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{safeUserData.role}</span></div></div><div className="flex items-center gap-5"><div className="relative"><button onClick={() => setShowNotifPanel(!showNotifPanel)} className="p-3 bg-slate-50 rounded-2xl relative text-slate-400 border border-slate-200 hover:bg-white hover:text-blue-600 transition-all shadow-inner"><Bell size={20} />{notifications.filter(n=>!n.read).length > 0 && <span className="absolute top-2 right-2 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-white"></span>}</button>{showNotifPanel && <div className="absolute right-0 top-14 w-80 bg-white rounded-[32px] shadow-2xl border-4 border-slate-50 p-2 z-50 animate-in zoom-in-95"><div className="p-4 border-b flex justify-between items-center font-black text-[11px] uppercase text-slate-400">Notifiche {isAdminFull && <button onClick={clearNotifications} className="text-red-500 hover:underline">Svuota</button>} <button onClick={()=>setShowNotifPanel(false)} className="bg-slate-100 p-1 rounded-lg"><X size={14}/></button></div><div className="max-h-80 overflow-y-auto scrollbar-hide">{notifications.length === 0 ? <p className="text-center py-10 text-xs text-slate-300 font-bold uppercase tracking-widest">Nessun avviso</p> : notifications.map(n => (<div key={n.id} onClick={async () => await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'notifications', n.id), { read: true })} className={`p-5 border-b last:border-none cursor-pointer hover:bg-slate-50 transition-colors ${!n.read ? 'bg-blue-50/40' : ''}`}><p className="text-xs font-black text-slate-800 uppercase leading-tight">{n.title}</p><p className="text-[10px] text-slate-500 mt-2 font-medium leading-relaxed">{n.message}</p></div>)) }</div></div>}</div><button onClick={()=>signOut(auth)} className="p-3 bg-slate-50 rounded-2xl text-slate-300 hover:text-red-500 border border-slate-200 transition-all"><LogOut size={20} /></button></div></header>
-      <main className="max-w-7xl mx-auto p-4 sm:p-10">{!selectedTask && <div className="flex bg-white/50 backdrop-blur-md p-1.5 rounded-[32px] border border-slate-200 shadow-sm mb-10 overflow-x-auto scrollbar-hide">{[ {id:'tasks', label:'Cantieri'}, {id:'reports', label:'Report'}, {id:'materials', label:'Magazzino'}, {id:'personal', label:'Profilo'} ].map(tab => (<button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`px-8 py-3.5 rounded-[24px] text-[11px] font-black uppercase tracking-[0.2em] transition-all ${activeTab === tab.id ? 'bg-slate-900 text-white shadow-xl shadow-slate-200' : 'text-slate-400 hover:bg-white'}`}>{tab.label}</button>))}</div>}{selectedTask ? <TaskDetailContainer task={selectedTask} userData={safeUserData} isMaster={isMaster} isAdminFull={isAdminFull} onBack={() => setSelectedTask(null)} /> : activeTab === 'tasks' ? <TasksView userData={safeUserData} isAdminFull={isAdminFull} onSelectTask={setSelectedTask} /> : activeTab === 'reports' ? <DailyReportsView userData={safeUserData} tasks={allTasks} isMaster={isMaster} isAdminFull={isAdminFull} /> : activeTab === 'materials' ? <MaterialsView /> : <PersonalAreaView user={user} userData={safeUserData} isMaster={isMaster} isAdminFull={isAdminFull} />}</main>
+      <main className="max-w-7xl mx-auto p-4 sm:p-10">{!selectedTask && <div className="flex bg-white/50 backdrop-blur-md p-1.5 rounded-[32px] border border-slate-200 shadow-sm mb-10 overflow-x-auto scrollbar-hide">{[ {id:'tasks', label:'Cantieri'}, {id:'reports', label:'Report'}, {id:'materials', label:'Magazzino'}, {id:'personal', label:'Profilo'} ].map(tab => (<button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`px-8 py-3.5 rounded-[24px] text-[11px] font-black uppercase tracking-[0.2em] transition-all ${activeTab === tab.id ? 'bg-slate-900 text-white shadow-xl shadow-slate-200' : 'text-slate-400 hover:bg-white'}`}>{tab.label}</button>))}</div>}{selectedTask ? <TaskDetailContainer task={selectedTask} userData={safeUserData} isMaster={isMaster} isAdminFull={isAdminFull} onBack={() => setSelectedTask(null)} /> : activeTab === 'tasks' ? <TasksView userData={safeUserData} isAdminFull={isAdminFull} onSelectTask={setSelectedTask} /> : activeTab === 'reports' ? <DailyReportsView userData={safeUserData} tasks={allTasks} isMaster={isMaster} isAdminFull={isAdminFull} /> : activeTab === 'materials' ? <MaterialsView /> : <PersonalAreaView user={user} userData={safeUserData} isMaster={isMaster} isAdmin={isAdmin} />}</main>
     </div>
   );
 }
