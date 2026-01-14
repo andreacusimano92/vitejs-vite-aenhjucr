@@ -33,7 +33,7 @@ import {
   Users, FileCheck, Download, CalendarRange, Bell, UserCheck, FileUp, 
   Maximize2, Truck, AlertTriangle, PenTool, MessageSquare, MapPin, 
   Send, ShieldAlert, Timer, Eye, LockKeyhole, UnlockKeyhole, FileBarChart, Map,
-  Fuel, Construction, Banknote, CalendarDays
+  Fuel, Construction, Banknote
 } from 'lucide-react';
 
 // --- CONFIGURAZIONE FIREBASE ---
@@ -103,16 +103,6 @@ async function logOperation(userData, action, details) {
     });
   } catch (e) {}
 }
-
-async function sendNotification(targetUserId, title, message, type = 'info') {
-  try {
-    await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'notifications'), {
-      targetUserId, title, message, type, read: false, createdAt: serverTimestamp()
-    });
-  } catch (e) {}
-}
-
-// --- COMPONENTI UI BASE ---
 
 function LoadingScreen() {
   return (
@@ -205,11 +195,15 @@ function SiteOverview({ task, isMaster, isAdmin, userData }) {
           </button>
         )}
       </div>
-      
-      <div className="p-6 bg-slate-50 rounded-[32px] border border-slate-200">
-         <div className="flex items-start justify-between">
-           <div><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Indirizzo Cantiere</p><p className="text-sm font-bold text-slate-700 flex items-center gap-2"><MapPin size={14}/> {task.address || "Non specificato"}</p></div>
-           <div><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Responsabile</p><p className="text-sm font-bold text-slate-700 flex items-center gap-2"><ShieldCheck size={14}/> {task.manager || "N/D"}</p></div>
+
+      <div className="p-6 bg-slate-50 rounded-[32px] border border-slate-200 grid grid-cols-1 md:grid-cols-2 gap-4">
+         <div>
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Indirizzo Cantiere</p>
+            <p className="text-sm font-bold text-slate-700 flex items-center gap-2"><MapPin size={16}/> {task.address || "Non specificato"}</p>
+         </div>
+         <div>
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Responsabile</p>
+            <p className="text-sm font-bold text-slate-700 flex items-center gap-2"><ShieldCheck size={16}/> {task.manager || "N/D"}</p>
          </div>
       </div>
 
@@ -526,7 +520,9 @@ function MaterialsView({ context = 'warehouse', taskId = null }) {
   return (
     <div className="space-y-6">
       <div className="flex justify-end">
-        <button onClick={()=>setShowForm(!showForm)} className="bg-blue-600 text-white px-6 py-2 rounded-2xl font-black text-xs uppercase shadow-lg">{showForm ? 'Chiudi' : 'Aggiungi Materiale'}</button>
+        <button onClick={()=>setShowForm(!showForm)} className="bg-blue-600 text-white px-6 py-2 rounded-2xl font-black text-xs uppercase shadow-lg">
+          {showForm ? 'Chiudi' : 'Aggiungi Materiale'}
+        </button>
       </div>
 
       {showForm && (
@@ -539,7 +535,7 @@ function MaterialsView({ context = 'warehouse', taskId = null }) {
             <input type="number" placeholder="Quantità" className="bg-slate-50 border-none rounded-xl p-3 text-sm font-bold outline-none" value={form.quantity} onChange={e=>setForm({...form, quantity: e.target.value})} required />
             <input type="number" placeholder="Costo Unitario €" className="bg-slate-50 border-none rounded-xl p-3 text-sm font-bold outline-none" value={form.cost} onChange={e=>setForm({...form, cost: e.target.value})} required />
           </div>
-          <button className="w-full bg-slate-900 text-white py-3 rounded-xl font-bold text-xs uppercase">Salva</button>
+          <button className="w-full bg-slate-900 text-white py-3 rounded-xl font-bold text-xs uppercase">Salva in Magazzino</button>
         </form>
       )}
 
@@ -587,7 +583,7 @@ function PersonalAreaView({ user, userData, isMaster, isAdmin }) {
        </div>
        {sub === 'leaves' && <LeaveRequestsPanel currentUser={user} targetIdentifier={targetUser} isAdmin={isAdmin} userData={userData} />}
        {sub === 'logs' && isMaster && (
-          <div className="bg-white border rounded-[32px] overflow-hidden shadow-sm overflow-x-auto animate-in fade-in"><table className="w-full text-left text-xs"><thead className="bg-slate-50 text-slate-400 font-black uppercase tracking-widest border-b"><tr><th className="p-5">Membro</th><th className="p-5">Azione</th><th className="p-5">GPS</th></tr></thead><tbody className="divide-y">{logs.map(l=>(<tr key={l.id} className="hover:bg-slate-50 transition-colors"><td className="p-5 font-bold uppercase text-[10px]">{l.userName}</td><td className="p-5 text-[10px]">{l.action}</td><td className="p-5 font-mono text-blue-500 uppercase text-[9px]">{l.location}</td></tr>))}</tbody></table></div>
+          <div className="bg-white border rounded-[32px] overflow-hidden shadow-sm overflow-x-auto animate-in fade-in"><table className="w-full text-left text-xs"><thead className="bg-slate-50 text-slate-400 font-black uppercase tracking-widest border-b"><tr><th className="p-5">Membro</th><th className="p-5">Azione</th><th className="p-5">GPS</th><th className="p-5">Data</th></tr></thead><tbody className="divide-y">{logs.map(l=>(<tr key={l.id} className="hover:bg-slate-50 transition-colors"><td className="p-5 font-bold uppercase text-[10px]">{l.userName}</td><td className="p-5 text-[10px]">{l.action}</td><td className="p-5 font-mono text-blue-500 uppercase text-[9px]">{l.location}</td><td className="p-5 text-[9px] text-slate-400">{formatTimestamp(l.createdAt)}</td></tr>))}</tbody></table></div>
        )}
     </div>
   );
@@ -630,6 +626,7 @@ function LeaveRequestsPanel({ currentUser, targetIdentifier, isAdmin, userData }
               </div>
             );
           })}
+          {leaves.length === 0 && <p className="text-center py-20 text-slate-300 font-black uppercase text-[10px] tracking-widest">Nessuna voce</p>}
       </div>
     </div>
   );
@@ -650,7 +647,7 @@ function TaskDetailContainer({ task, userData, isMaster, isAdminFull, onBack }) 
     { id: 'accounting', label: 'Costi', icon: Calculator }, 
     { id: 'requests', label: 'Ordini', icon: ShoppingCart }, 
     { id: 'photos', label: 'Foto', icon: Camera },
-    { id: 'materials', label: 'Magazzino', icon: Package } // Aggiunta scheda materiali locale
+    { id: 'materials', label: 'Magazzino', icon: Package }
   ];
 
   return (
@@ -668,12 +665,12 @@ function TaskDetailContainer({ task, userData, isMaster, isAdminFull, onBack }) 
         {active === 'overview' && <SiteOverview task={task} isMaster={isMaster} isAdminFull={isAdminFull} userData={userData} />}
         {active === 'chat' && <SiteChat taskId={task.id} userData={userData} isClosed={isClosed} />}
         {active === 'reports' && <SiteReportsList taskId={task.id} isMaster={isMaster} userData={userData} isAdminFull={isAdminFull} />}
-        {active === 'team' && <SiteTeam task={task} isAdmin={isAdminFull} />}
+        {active === 'team' && <SiteTeam task={task} isAdminFull={isAdminFull} />}
         {active === 'documents' && <SiteDocuments taskId={task.id} isAdminFull={isAdminFull} userData={userData} isClosed={isClosed} />}
-        {active === 'schedule' && <SiteSchedule task={task} isAdmin={isAdminFull} />}
-        {active === 'accounting' && isMaster && <SiteAccounting taskId={task.id} isMaster={isMaster} />}
+        {active === 'schedule' && <SiteSchedule task={task} isAdminFull={isAdminFull} />}
+        {active === 'accounting' && isMaster && <SiteAccounting taskId={task.id} />}
         {active === 'requests' && <MaterialRequestsView taskId={task.id} userData={userData} isClosed={isClosed} />}
-        {active === 'photos' && <SitePhotos taskId={task.id} userData={userData} isAdmin={isAdminFull} isClosed={isClosed} />}
+        {active === 'photos' && <SitePhotos taskId={task.id} userData={userData} isAdminFull={isAdminFull} isClosed={isClosed} />}
         {active === 'materials' && <MaterialsView context="site" taskId={task.id} />}
       </div>
     </div>
