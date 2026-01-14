@@ -33,7 +33,7 @@ import {
   Users, FileCheck, Download, CalendarRange, Bell, UserCheck, FileUp, 
   Maximize2, Truck, AlertTriangle, PenTool, MessageSquare, MapPin, 
   Send, ShieldAlert, Timer, Eye, LockKeyhole, UnlockKeyhole, FileBarChart, Map,
-  Fuel, Construction
+  Fuel, Construction, Banknote, CalendarDays
 } from 'lucide-react';
 
 // --- CONFIGURAZIONE FIREBASE ---
@@ -103,6 +103,16 @@ async function logOperation(userData, action, details) {
     });
   } catch (e) {}
 }
+
+async function sendNotification(targetUserId, title, message, type = 'info') {
+  try {
+    await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'notifications'), {
+      targetUserId, title, message, type, read: false, createdAt: serverTimestamp()
+    });
+  } catch (e) {}
+}
+
+// --- COMPONENTI UI BASE ---
 
 function LoadingScreen() {
   return (
@@ -186,7 +196,7 @@ function SiteOverview({ task, isMaster, isAdmin, userData }) {
     <div className="space-y-6">
       <div className={`p-6 rounded-[32px] border flex justify-between items-center ${task.completed ? 'bg-slate-900 border-slate-800 text-white shadow-xl' : 'bg-white border-slate-200 shadow-sm'}`}>
         <div className="flex items-center gap-4">
-          <div className={`p-3 rounded-2xl ${task.completed ? 'bg-slate-800 text-green-400' : 'bg-blue-50 text-blue-600'}`}>{task.completed ? <LockKeyhole/> : <Activity/>}</div>
+          <div className={`p-3 rounded-2xl ${task.completed ? 'bg-slate-800 text-green-400' : 'bg-blue-50 text-blue-600'}`}>{task.completed ? <LockKeyhole size={24}/> : <Activity size={24}/>}</div>
           <div><h4 className="font-black uppercase text-[10px] tracking-widest">Stato</h4><p className="text-sm font-bold">{task.completed ? 'CHIUSO' : 'OPERATIVO'}</p></div>
         </div>
         {isMaster && (
@@ -195,8 +205,16 @@ function SiteOverview({ task, isMaster, isAdmin, userData }) {
           </button>
         )}
       </div>
+      
+      <div className="p-6 bg-slate-50 rounded-[32px] border border-slate-200">
+         <div className="flex items-start justify-between">
+           <div><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Indirizzo Cantiere</p><p className="text-sm font-bold text-slate-700 flex items-center gap-2"><MapPin size={14}/> {task.address || "Non specificato"}</p></div>
+           <div><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Responsabile</p><p className="text-sm font-bold text-slate-700 flex items-center gap-2"><ShieldCheck size={14}/> {task.manager || "N/D"}</p></div>
+         </div>
+      </div>
+
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-white p-5 rounded-3xl border text-center shadow-sm"><p className="text-[9px] font-black text-slate-400 uppercase mb-1">Ore</p><p className="text-xl font-black text-slate-800">{stats.hrs} H</p></div>
+        <div className="bg-white p-5 rounded-3xl border text-center shadow-sm"><p className="text-[9px] font-black text-slate-400 uppercase mb-1">Ore Lavoro</p><p className="text-xl font-black text-slate-800">{stats.hrs} H</p></div>
         <div className="bg-white p-5 rounded-3xl border text-center shadow-sm"><p className="text-[9px] font-black text-slate-400 uppercase mb-1">Costo Materiali</p><p className="text-xl font-black text-slate-800">€ {stats.mat.toFixed(0)}</p></div>
         <div className="bg-white p-5 rounded-3xl border text-center shadow-sm"><p className="text-[9px] font-black text-slate-400 uppercase mb-1">Trasferte</p><p className="text-xl font-black text-orange-600">{stats.travel}</p></div>
         <div className="bg-slate-50 p-5 rounded-3xl border text-center"><p className="text-[9px] font-black text-slate-400 uppercase mb-1">Zona</p><p className="text-xs font-bold truncate uppercase">{task.isTrasfertaSite ? 'Fuori Sede' : 'Locale'}</p>{isAdmin && !task.completed && <button onClick={toggleTravelSite} className="text-[9px] text-blue-500 font-bold mt-1 underline">CAMBIA</button>}</div>
@@ -210,12 +228,11 @@ function SiteReportsList({ taskId, isMaster, userData, isAdminFull }) {
   const [selected, setSelected] = useState(null);
 
   useEffect(() => {
-    // Caricamento semplice e filtraggio locale
     const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'daily_reports'));
     return onSnapshot(q, (snap) => {
       const all = snap.docs.map(d => ({id: d.id, ...d.data()}))
         .filter(r => r.taskId === taskId)
-        .sort((a,b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)); // Ordinamento decrescente
+        .sort((a,b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
       setReports(isMaster ? all : all.filter(r => r.userName === userData.name));
     });
   }, [taskId, isMaster, userData?.name]);
@@ -246,7 +263,6 @@ function SiteChat({ taskId, userData, isClosed }) {
   const [newMessage, setNewMessage] = useState('');
   const scrollRef = useRef(null);
   useEffect(() => {
-    // Query semplice
     const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'site_chats'));
     return onSnapshot(q, (snap) => {
       const msgs = snap.docs.map(d => ({id: d.id, ...d.data()})).filter(m => m.taskId === taskId).sort((a,b) => (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0));
@@ -346,88 +362,19 @@ function MaterialRequestsView({ taskId, userData, isClosed }) {
   );
 }
 
-function SiteAccounting({ taskId, isMaster }) {
+function SiteAccounting({ taskId }) {
   const [totals, setTotals] = useState({ materials: 0, labor: 0, extra: 0, travel: 0 });
-  const [expenses, setExpenses] = useState([]);
-  const [newExpense, setNewExpense] = useState({ desc: '', amount: '' });
-  const [materials, setMaterials] = useState([]);
-
   useEffect(() => {
-    // Caricamento dei materiali del cantiere
-    const unsubM = onSnapshot(query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'materials'), where('taskId', '==', taskId)), s => {
-      const matDocs = s.docs.map(d=>({id: d.id, ...d.data()}));
-      setMaterials(matDocs);
-      setTotals(prev => ({...prev, materials: matDocs.reduce((sum, d) => sum + (parseFloat(d.quantity || 0) * parseFloat(d.cost || 0)), 0)}));
-    });
+    const unsubM = onSnapshot(query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'materials'), where('taskId', '==', taskId)), s => { setTotals(prev => ({...prev, materials: s.docs.reduce((sum, d) => sum + (parseFloat(d.data().quantity || 0) * parseFloat(d.data().cost || 0)), 0)})); });
     const unsubL = onSnapshot(query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'daily_reports'), where('taskId', '==', taskId)), s => { const reports = s.docs.map(d=>d.data()); setTotals(prev => ({ ...prev, labor: reports.reduce((sum, d) => sum + (parseFloat(d.hours || 0)), 0) * STANDARD_HOURLY_RATE, travel: reports.filter(d=>d.isTrasferta).length })); });
-    const unsubE = onSnapshot(query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'expenses'), where('taskId', '==', taskId)), s => {
-      const exp = s.docs.map(d=>({id: d.id, ...d.data()}));
-      setExpenses(exp);
-      setTotals(prev => ({...prev, extra: exp.reduce((sum, e) => sum + parseFloat(e.amount || 0), 0)}));
-    });
-    return () => { unsubM(); unsubL(); unsubE(); };
+    return () => { unsubM(); unsubL(); };
   }, [taskId]);
-
-  const addExpense = async (e) => {
-    e.preventDefault();
-    if(!newExpense.desc || !newExpense.amount) return;
-    await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'expenses'), { taskId, description: newExpense.desc, amount: newExpense.amount, createdAt: serverTimestamp() });
-    setNewExpense({ desc: '', amount: '' });
-  };
-
-  const deleteExpense = async (id) => {
-    if(window.confirm("Eliminare spesa?")) await deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'expenses', id));
-  };
-
-  const deleteMaterial = async (id) => {
-    if(window.confirm("Rimuovere materiale dal cantiere?")) await deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'materials', id));
-  };
-
   return (
-    <div className="space-y-6 animate-in fade-in">
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-white p-6 rounded-3xl border shadow-sm text-center"><p className="text-[9px] text-slate-400 uppercase font-black tracking-widest mb-1">Materiali</p><p className="text-xl font-bold text-slate-800">€ {totals.materials.toFixed(0)}</p></div>
-        <div className="bg-white p-6 rounded-3xl border shadow-sm text-center"><p className="text-[9px] text-slate-400 uppercase font-black tracking-widest mb-1">Manodopera</p><p className="text-xl font-bold text-slate-800">€ {totals.labor.toFixed(0)}</p></div>
-        <div className="bg-white p-6 rounded-3xl border shadow-sm text-center"><p className="text-[9px] text-slate-400 uppercase font-black tracking-widest mb-1">Extra</p><p className="text-xl font-bold text-orange-600">€ {totals.extra.toFixed(0)}</p></div>
-        <div className="bg-slate-900 p-6 rounded-3xl shadow-xl text-center text-white"><p className="text-[9px] text-slate-400 uppercase font-black tracking-widest mb-1">Totale</p><p className="text-2xl font-bold">€ {(totals.materials + totals.labor + totals.extra).toFixed(0)}</p></div>
-      </div>
-      
-      <div className="bg-white p-6 rounded-[32px] border shadow-sm">
-        <h3 className="font-black text-slate-800 uppercase tracking-tighter mb-4">Materiali Impiegati</h3>
-        <div className="space-y-2">
-           {materials.map(m => (
-             <div key={m.id} className="flex justify-between items-center p-3 border-b last:border-0 hover:bg-slate-50">
-               <div><span className="text-sm font-bold text-slate-700 block">{m.name}</span><span className="text-[10px] text-slate-400">{m.quantity} unità a €{m.cost}</span></div>
-               <div className="flex items-center gap-3">
-                 <span className="font-bold text-slate-900">€ {(parseFloat(m.quantity) * parseFloat(m.cost)).toFixed(0)}</span>
-                 {isMaster && <button onClick={()=>deleteMaterial(m.id)} className="text-red-400 hover:text-red-600"><Trash2 size={16}/></button>}
-               </div>
-             </div>
-           ))}
-        </div>
-      </div>
-
-      <div className="bg-white p-6 rounded-[32px] border shadow-sm">
-        <h3 className="font-black text-slate-800 uppercase tracking-tighter mb-4">Spese Extra</h3>
-        {isMaster && (
-          <form onSubmit={addExpense} className="flex gap-2 mb-4">
-            <input placeholder="Descrizione (es. Noleggio, Permessi)" className="flex-1 bg-slate-50 rounded-xl p-3 text-sm outline-none" value={newExpense.desc} onChange={e=>setNewExpense({...newExpense, desc: e.target.value})}/>
-            <input type="number" placeholder="€" className="w-24 bg-slate-50 rounded-xl p-3 text-sm outline-none" value={newExpense.amount} onChange={e=>setNewExpense({...newExpense, amount: e.target.value})}/>
-            <button className="bg-blue-600 text-white px-4 rounded-xl font-bold text-xs">OK</button>
-          </form>
-        )}
-        <div className="space-y-2">
-          {expenses.map(e => (
-            <div key={e.id} className="flex justify-between items-center p-3 border-b last:border-0 hover:bg-slate-50">
-              <span className="text-sm font-bold text-slate-700">{e.description}</span>
-              <div className="flex items-center gap-3">
-                <span className="font-bold text-slate-900">€ {e.amount}</span>
-                {isMaster && <button onClick={()=>deleteExpense(e.id)} className="text-red-400 hover:text-red-600"><Trash2 size={16}/></button>}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
+    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 animate-in slide-in-from-top-4">
+      <div className="bg-white p-6 rounded-3xl border shadow-sm text-center"><p className="text-[9px] text-slate-400 uppercase font-black tracking-widest mb-1">Materiali</p><p className="text-xl font-bold text-slate-800">€ {totals.materials.toFixed(0)}</p></div>
+      <div className="bg-white p-6 rounded-3xl border shadow-sm text-center"><p className="text-[9px] text-slate-400 uppercase font-black tracking-widest mb-1">Manodopera</p><p className="text-xl font-bold text-slate-800">€ {totals.labor.toFixed(0)}</p></div>
+      <div className="bg-white p-6 rounded-3xl border shadow-sm text-center"><p className="text-[9px] text-slate-400 uppercase font-black tracking-widest mb-1">Trasferte</p><p className="text-xl font-bold text-orange-600">{totals.travel}</p></div>
+      <div className="bg-slate-900 p-6 rounded-3xl shadow-xl text-center text-white"><p className="text-[9px] text-slate-400 uppercase font-black tracking-widest mb-1">Totale</p><p className="text-2xl font-bold">€ {(totals.materials + totals.labor).toFixed(0)}</p></div>
     </div>
   );
 }
@@ -437,7 +384,7 @@ function SiteAccounting({ taskId, isMaster }) {
 function TasksView({ userData, isAdmin, onSelectTask }) {
   const [tasks, setTasks] = useState([]);
   const [isFormOpen, setIsFormOpen] = useState(false);
-  const [newTask, setNewTask] = useState({ title: '', client: '', description: '', isTrasfertaSite: false });
+  const [newTask, setNewTask] = useState({ title: '', client: '', description: '', isTrasfertaSite: false, startDate: '', address: '', manager: '', budget: '' });
 
   useEffect(() => {
     return onSnapshot(collection(db, 'artifacts', APP_ID, 'public', 'data', 'tasks'), (snap) => {
@@ -450,7 +397,7 @@ function TasksView({ userData, isAdmin, onSelectTask }) {
     if(!isAdmin) return;
     await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'tasks'), { ...newTask, completed: false, createdAt: serverTimestamp(), authorName: userData.name });
     setIsFormOpen(false);
-    setNewTask({title:'', client:'', description:'', isTrasfertaSite: false});
+    setNewTask({title:'', client:'', description:'', isTrasfertaSite: false, startDate: '', address: '', manager: '', budget: ''});
     await logOperation(userData, "Crea Cantiere", newTask.title);
   };
 
@@ -464,7 +411,15 @@ function TasksView({ userData, isAdmin, onSelectTask }) {
         <form onSubmit={addTask} className="bg-white p-10 rounded-[40px] border shadow-2xl space-y-5 animate-in slide-in-from-top-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <input placeholder="Titolo Cantiere" className="bg-slate-50 border-none rounded-2xl p-5 outline-none font-bold text-lg" onChange={e=>setNewTask({...newTask, title: e.target.value})} required />
-            <input placeholder="Cliente" className="bg-slate-50 border-none rounded-2xl p-5 outline-none font-bold text-lg" onChange={e=>setNewTask({...newTask, client: e.target.value})} required />
+            <input placeholder="Committente" className="bg-slate-50 border-none rounded-2xl p-5 outline-none font-bold text-lg" onChange={e=>setNewTask({...newTask, client: e.target.value})} required />
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+             <input placeholder="Indirizzo" className="bg-slate-50 border-none rounded-2xl p-4 font-bold text-sm outline-none" onChange={e=>setNewTask({...newTask, address: e.target.value})} />
+             <input type="date" className="bg-slate-50 border-none rounded-2xl p-4 font-bold text-sm outline-none" onChange={e=>setNewTask({...newTask, startDate: e.target.value})} required />
+             <select className="bg-slate-50 border-none rounded-2xl p-4 font-bold text-sm outline-none" onChange={e=>setNewTask({...newTask, manager: e.target.value})}>
+                <option value="">Seleziona Responsabile</option>
+                {Object.values(USERS_CONFIG).filter(u => u.role === 'Master').map(u => <option key={u.name} value={u.name}>{u.name}</option>)}
+             </select>
           </div>
           <div className="flex items-center gap-3 bg-slate-50 p-4 rounded-2xl shadow-inner">
              <input type="checkbox" className="w-5 h-5 accent-blue-600" onChange={e=>setNewTask({...newTask, isTrasfertaSite: e.target.checked})} />
@@ -494,13 +449,10 @@ function DailyReportsView({ userData, tasks, isMaster, isAdminFull }) {
   const [selected, setSelected] = useState(null);
 
   useEffect(() => {
-    // Caricamento semplice e filtraggio locale
-    const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'daily_reports'));
-    return onSnapshot(q, (snap) => {
-      const all = snap.docs.map(d => ({id: d.id, ...d.data()}))
-        .sort((a,b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
-      setReports(isMaster ? all.slice(0, 50) : all.filter(r => r.userName === userData.name).slice(0, 50));
-    });
+    const q = isMaster 
+      ? query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'daily_reports'), orderBy('createdAt', 'desc'), limit(50))
+      : query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'daily_reports'), where('userName', '==', userData.name), orderBy('createdAt', 'desc'), limit(50));
+    return onSnapshot(q, s => setReports(s.docs.map(d=>({id:d.id, ...d.data()}))));
   }, [isMaster, userData?.name]);
 
   const submit = async (e) => {
@@ -523,7 +475,7 @@ function DailyReportsView({ userData, tasks, isMaster, isAdminFull }) {
           <input type="date" value={form.reportDate} onChange={e=>setForm({...form, reportDate: e.target.value})} className="bg-slate-50 border-none rounded-2xl p-4 font-bold text-sm shadow-inner outline-none" required />
         </div>
         <div className="grid grid-cols-2 gap-4">
-           <input type="number" step="0.5" placeholder="Ore" value={form.hours} onChange={e=>setForm({...form, hours: e.target.value})} className="flex-1 bg-slate-50 rounded-2xl p-5 font-bold text-sm border-none shadow-inner outline-none" required />
+           <input type="number" step="0.5" placeholder="Ore" value={form.hours} onChange={e=>setForm({...form, hours: e.target.value})} className="flex-1 bg-slate-50 rounded-3xl p-5 font-bold text-sm border-none shadow-inner outline-none" required />
            <select value={form.vehicleId} onChange={e=>setForm({...form, vehicleId: e.target.value})} className="flex-1 bg-slate-50 border-none rounded-3xl p-5 outline-none font-bold text-sm shadow-inner" required>{STATIC_VEHICLES.map(v => <option key={v} value={v}>{v}</option>)}</select>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -555,8 +507,7 @@ function MaterialsView({ context = 'warehouse', taskId = null }) {
   const [showForm, setShowForm] = useState(false);
 
   useEffect(() => {
-    // Caricamento semplice
-    const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'materials'));
+    const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'materials'), orderBy('createdAt', 'desc'), limit(50));
     return onSnapshot(q, s => {
       const all = s.docs.map(d=>({id:d.id, ...d.data()}));
       setItems(context === 'site' ? all.filter(m=>m.taskId === taskId) : all.filter(m=>!m.taskId));
@@ -575,9 +526,7 @@ function MaterialsView({ context = 'warehouse', taskId = null }) {
   return (
     <div className="space-y-6">
       <div className="flex justify-end">
-        <button onClick={()=>setShowForm(!showForm)} className="bg-blue-600 text-white px-6 py-2 rounded-2xl font-black text-xs uppercase shadow-lg">
-          {showForm ? 'Chiudi' : 'Aggiungi Materiale'}
-        </button>
+        <button onClick={()=>setShowForm(!showForm)} className="bg-blue-600 text-white px-6 py-2 rounded-2xl font-black text-xs uppercase shadow-lg">{showForm ? 'Chiudi' : 'Aggiungi Materiale'}</button>
       </div>
 
       {showForm && (
@@ -590,7 +539,7 @@ function MaterialsView({ context = 'warehouse', taskId = null }) {
             <input type="number" placeholder="Quantità" className="bg-slate-50 border-none rounded-xl p-3 text-sm font-bold outline-none" value={form.quantity} onChange={e=>setForm({...form, quantity: e.target.value})} required />
             <input type="number" placeholder="Costo Unitario €" className="bg-slate-50 border-none rounded-xl p-3 text-sm font-bold outline-none" value={form.cost} onChange={e=>setForm({...form, cost: e.target.value})} required />
           </div>
-          <button className="w-full bg-slate-900 text-white py-3 rounded-xl font-bold text-xs uppercase">Salva in Magazzino</button>
+          <button className="w-full bg-slate-900 text-white py-3 rounded-xl font-bold text-xs uppercase">Salva</button>
         </form>
       )}
 
@@ -636,9 +585,9 @@ function PersonalAreaView({ user, userData, isMaster, isAdmin }) {
          <div className="flex items-center gap-5 w-full sm:w-auto"><div className="w-16 h-16 bg-blue-600 rounded-3xl flex items-center justify-center text-white text-2xl font-black shadow-xl uppercase">{userData?.name?.charAt(0)}</div><div className="flex-1 overflow-hidden"><h2 className="text-2xl font-black text-slate-800 tracking-tighter uppercase truncate leading-none">{userData?.name}</h2>{isMaster && <select className="mt-3 text-[10px] font-black uppercase tracking-widest text-blue-600 bg-blue-50 border-none rounded-xl p-2 outline-none cursor-pointer w-full shadow-inner" value={targetUser} onChange={(e) => setTargetUser(e.target.value)}><option value={user.uid}>Mio Profilo Personale</option>{usersList.map(u => (<option key={u.username} value={u.username}>Vedi: {u.name}</option>))}</select>}</div></div>
          <div className="flex gap-4 w-full sm:w-auto overflow-x-auto scrollbar-hide"><button onClick={()=>setSub('leaves')} className={`flex-1 sm:px-6 py-2 text-xs font-black uppercase tracking-widest transition-all ${sub === 'leaves' ? 'bg-blue-600 text-white rounded-2xl shadow-lg' : 'text-slate-400'}`}>Ferie</button>{isMaster && <button onClick={()=>setSub('logs')} className={`flex-1 sm:px-6 py-2 text-xs font-black uppercase tracking-widest transition-all ${sub === 'logs' ? 'bg-blue-600 text-white rounded-2xl shadow-lg' : 'text-slate-400'}`}>Log</button>}</div>
        </div>
-       {sub === 'leaves' && <LeaveRequestsPanel currentUser={user} targetIdentifier={targetUser} isMaster={isMaster} isAdmin={isAdmin} userData={userData} />}
+       {sub === 'leaves' && <LeaveRequestsPanel currentUser={user} targetIdentifier={targetUser} isAdmin={isAdmin} userData={userData} />}
        {sub === 'logs' && isMaster && (
-          <div className="bg-white border rounded-[32px] overflow-hidden shadow-sm overflow-x-auto animate-in fade-in"><table className="w-full text-left text-xs"><thead className="bg-slate-50 text-slate-400 font-black uppercase tracking-widest border-b"><tr><th className="p-5">Membro</th><th className="p-5">Azione</th><th className="p-5">GPS</th><th className="p-5">Data</th></tr></thead><tbody className="divide-y">{logs.map(l=>(<tr key={l.id} className="hover:bg-slate-50 transition-colors"><td className="p-5 font-bold uppercase text-[10px]">{l.userName}</td><td className="p-5 text-[10px]">{l.action}</td><td className="p-5 font-mono text-blue-500 uppercase text-[9px]">{l.location}</td><td className="p-5 text-[9px] text-slate-400">{formatTimestamp(l.createdAt)}</td></tr>))}</tbody></table></div>
+          <div className="bg-white border rounded-[32px] overflow-hidden shadow-sm overflow-x-auto animate-in fade-in"><table className="w-full text-left text-xs"><thead className="bg-slate-50 text-slate-400 font-black uppercase tracking-widest border-b"><tr><th className="p-5">Membro</th><th className="p-5">Azione</th><th className="p-5">GPS</th></tr></thead><tbody className="divide-y">{logs.map(l=>(<tr key={l.id} className="hover:bg-slate-50 transition-colors"><td className="p-5 font-bold uppercase text-[10px]">{l.userName}</td><td className="p-5 text-[10px]">{l.action}</td><td className="p-5 font-mono text-blue-500 uppercase text-[9px]">{l.location}</td></tr>))}</tbody></table></div>
        )}
     </div>
   );
@@ -648,13 +597,10 @@ function LeaveRequestsPanel({ currentUser, targetIdentifier, isAdmin, userData }
   const [leaves, setLeaves] = useState([]);
   const [form, setForm] = useState({ start: '', end: '', type: 'Ferie' });
   useEffect(() => {
-    // Caricamento e filtro locale
     const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'leaves'));
     return onSnapshot(q, (snap) => {
       const all = snap.docs.map(d => ({id: d.id, ...d.data()}));
-      const filtered = all.filter(l => (targetIdentifier === currentUser.uid ? l.userId === currentUser.uid : l.username === targetIdentifier))
-      .sort((a,b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
-      setLeaves(filtered);
+      setLeaves(all.filter(l => (targetIdentifier === currentUser.uid ? l.userId === currentUser.uid : l.username === targetIdentifier)).sort((a,b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)));
     });
   }, [targetIdentifier, currentUser]);
   const submit = async (e) => { e.preventDefault(); if (!form.start || !form.end) return; await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'leaves'), { ...form, userId: currentUser.uid, username: currentUser.email?.split('@')[0], fullName: userData?.name || 'Utente', status: 'pending', createdAt: serverTimestamp() }); setForm({ start: '', end: '', type: 'Ferie' }); };
@@ -722,8 +668,8 @@ function TaskDetailContainer({ task, userData, isMaster, isAdminFull, onBack }) 
         {active === 'overview' && <SiteOverview task={task} isMaster={isMaster} isAdminFull={isAdminFull} userData={userData} />}
         {active === 'chat' && <SiteChat taskId={task.id} userData={userData} isClosed={isClosed} />}
         {active === 'reports' && <SiteReportsList taskId={task.id} isMaster={isMaster} userData={userData} isAdminFull={isAdminFull} />}
-        {active === 'team' && <SiteTeam task={task} isAdmin={isAdminFull} isMaster={isMaster} />}
-        {active === 'documents' && <SiteDocuments taskId={task.id} isAdmin={isAdminFull} userData={userData} isClosed={isClosed} />}
+        {active === 'team' && <SiteTeam task={task} isAdmin={isAdminFull} />}
+        {active === 'documents' && <SiteDocuments taskId={task.id} isAdminFull={isAdminFull} userData={userData} isClosed={isClosed} />}
         {active === 'schedule' && <SiteSchedule task={task} isAdmin={isAdminFull} />}
         {active === 'accounting' && isMaster && <SiteAccounting taskId={task.id} isMaster={isMaster} />}
         {active === 'requests' && <MaterialRequestsView taskId={task.id} userData={userData} isClosed={isClosed} />}
@@ -781,7 +727,7 @@ function DashboardContainer({ user, userData }) {
   return (
     <div className="pb-24">
       <header className="bg-white/90 backdrop-blur-md border-b sticky top-0 z-40 h-20 flex items-center justify-between px-6 shadow-sm"><div className="flex items-center gap-4"><div className="bg-blue-600 p-2.5 rounded-2xl text-white shadow-xl shadow-blue-200"><LayoutDashboard size={20} /></div><div className="hidden sm:block"><h1 className="font-black text-slate-800 uppercase tracking-tighter text-xl leading-none">Impresadaria</h1><span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{safeUserData.role}</span></div></div><div className="flex items-center gap-5"><div className="relative"><button onClick={() => setShowNotifPanel(!showNotifPanel)} className="p-3 bg-slate-50 rounded-2xl relative text-slate-400 border border-slate-200 hover:bg-white hover:text-blue-600 transition-all shadow-inner"><Bell size={20} />{notifications.filter(n=>!n.read).length > 0 && <span className="absolute top-2 right-2 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-white"></span>}</button>{showNotifPanel && <div className="absolute right-0 top-14 w-80 bg-white rounded-[32px] shadow-2xl border-4 border-slate-50 p-2 z-50 animate-in zoom-in-95"><div className="p-4 border-b flex justify-between items-center font-black text-[11px] uppercase text-slate-400">Notifiche {isAdminFull && <button onClick={clearNotifications} className="text-red-500 hover:underline">Svuota</button>} <button onClick={()=>setShowNotifPanel(false)} className="bg-slate-100 p-1 rounded-lg"><X size={14}/></button></div><div className="max-h-80 overflow-y-auto scrollbar-hide">{notifications.length === 0 ? <p className="text-center py-10 text-xs text-slate-300 font-bold uppercase tracking-widest">Nessun avviso</p> : notifications.map(n => (<div key={n.id} onClick={async () => await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'notifications', n.id), { read: true })} className={`p-5 border-b last:border-none cursor-pointer hover:bg-slate-50 transition-colors ${!n.read ? 'bg-blue-50/40' : ''}`}><p className="text-xs font-black text-slate-800 uppercase leading-tight">{n.title}</p><p className="text-[10px] text-slate-500 mt-2 font-medium leading-relaxed">{n.message}</p></div>)) }</div></div>}</div><button onClick={()=>signOut(auth)} className="p-3 bg-slate-50 rounded-2xl text-slate-300 hover:text-red-500 border border-slate-200 transition-all"><LogOut size={20} /></button></div></header>
-      <main className="max-w-7xl mx-auto p-4 sm:p-10">{!selectedTask && <div className="flex bg-white/50 backdrop-blur-md p-1.5 rounded-[32px] border border-slate-200 shadow-sm mb-10 overflow-x-auto scrollbar-hide">{[ {id:'tasks', label:'Cantieri'}, {id:'reports', label:'Report'}, {id:'materials', label:'Magazzino'}, {id:'personal', label:'Profilo'} ].map(tab => (<button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`px-8 py-3.5 rounded-[24px] text-[11px] font-black uppercase tracking-[0.2em] transition-all ${activeTab === tab.id ? 'bg-slate-900 text-white shadow-xl shadow-slate-200' : 'text-slate-400 hover:bg-white'}`}>{tab.label}</button>))}</div>}{selectedTask ? <TaskDetailContainer task={selectedTask} userData={safeUserData} isMaster={isMaster} isAdminFull={isAdminFull} onBack={() => setSelectedTask(null)} /> : activeTab === 'tasks' ? <TasksView userData={safeUserData} isAdmin={isAdminFull} onSelectTask={setSelectedTask} /> : activeTab === 'reports' ? <DailyReportsView userData={safeUserData} tasks={allTasks} isMaster={isMaster} isAdminFull={isAdminFull} /> : activeTab === 'materials' ? <MaterialsView /> : <PersonalAreaView user={user} userData={safeUserData} isMaster={isMaster} isAdminFull={isAdminFull} />}</main>
+      <main className="max-w-7xl mx-auto p-4 sm:p-10">{!selectedTask && <div className="flex bg-white/50 backdrop-blur-md p-1.5 rounded-[32px] border border-slate-200 shadow-sm mb-10 overflow-x-auto scrollbar-hide">{[ {id:'tasks', label:'Cantieri'}, {id:'reports', label:'Report'}, {id:'materials', label:'Magazzino'}, {id:'personal', label:'Profilo'} ].map(tab => (<button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`px-8 py-3.5 rounded-[24px] text-[11px] font-black uppercase tracking-[0.2em] transition-all ${activeTab === tab.id ? 'bg-slate-900 text-white shadow-xl shadow-slate-200' : 'text-slate-400 hover:bg-white'}`}>{tab.label}</button>))}</div>}{selectedTask ? <TaskDetailContainer task={selectedTask} userData={safeUserData} isMaster={isMaster} isAdminFull={isAdminFull} onBack={() => setSelectedTask(null)} /> : activeTab === 'tasks' ? <TasksView userData={safeUserData} isAdminFull={isAdminFull} onSelectTask={setSelectedTask} /> : activeTab === 'reports' ? <DailyReportsView userData={safeUserData} tasks={allTasks} isMaster={isMaster} isAdminFull={isAdminFull} /> : activeTab === 'materials' ? <MaterialsView /> : <PersonalAreaView user={user} userData={safeUserData} isMaster={isMaster} isAdmin={isAdminFull} />}</main>
     </div>
   );
 }
