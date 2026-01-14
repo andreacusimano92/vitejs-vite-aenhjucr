@@ -142,7 +142,7 @@ function ReportModal({ report, onClose, canDelete }) {
              <div className="p-4 bg-slate-50 rounded-3xl border"><p className="text-[9px] font-black text-slate-400 uppercase mb-1">Mezzo</p><div className="flex items-center gap-2 text-slate-700 font-bold text-[10px] truncate"><Truck size={14}/> {report.vehicleName}</div></div>
              <div className="p-4 bg-slate-50 rounded-3xl border"><p className="text-[9px] font-black text-slate-400 uppercase mb-1">Carburante</p><div className="flex items-center gap-2 text-green-600 font-bold text-[10px]"><Fuel size={14}/> {report.fuelAmount ? `€ ${report.fuelAmount}` : 'No'}</div></div>
           </div>
-          {report.equipmentUsed && <div className="p-4 bg-blue-50/50 rounded-3xl border border-blue-100"><p className="text-[9px] font-black text-blue-400 uppercase mb-1">Attrezzatura</p><div className="flex items-center gap-2 text-blue-700 font-bold text-[10px] uppercase"><Construction size={14}/> {report.equipmentUsed}</div></div>}
+          {report.equipmentUsed && <div className="p-4 bg-blue-50/50 rounded-2xl border border-blue-100"><p className="text-[9px] font-black text-blue-400 uppercase mb-1">Attrezzatura</p><div className="flex items-center gap-2 text-blue-700 font-bold text-[10px] uppercase"><Construction size={14}/> {report.equipmentUsed}</div></div>}
         </div>
       </div>
     </div>
@@ -210,11 +210,12 @@ function SiteReportsList({ taskId, isMaster, userData, isAdminFull }) {
   const [selected, setSelected] = useState(null);
 
   useEffect(() => {
+    // Caricamento semplice e filtraggio locale
     const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'daily_reports'));
     return onSnapshot(q, (snap) => {
       const all = snap.docs.map(d => ({id: d.id, ...d.data()}))
         .filter(r => r.taskId === taskId)
-        .sort((a,b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+        .sort((a,b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)); // Ordinamento decrescente
       setReports(isMaster ? all : all.filter(r => r.userName === userData.name));
     });
   }, [taskId, isMaster, userData?.name]);
@@ -245,6 +246,7 @@ function SiteChat({ taskId, userData, isClosed }) {
   const [newMessage, setNewMessage] = useState('');
   const scrollRef = useRef(null);
   useEffect(() => {
+    // Query semplice
     const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'site_chats'));
     return onSnapshot(q, (snap) => {
       const msgs = snap.docs.map(d => ({id: d.id, ...d.data()})).filter(m => m.taskId === taskId).sort((a,b) => (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0));
@@ -265,16 +267,16 @@ function SiteChat({ taskId, userData, isClosed }) {
   );
 }
 
-function SiteTeam({ task, isAdmin, isMaster }) {
+function SiteTeam({ task, isAdmin }) {
   const [assigned, setAssigned] = useState(task.assignedTeam || []);
   const [selectedUser, setSelectedUser] = useState('');
   const allStaff = Object.values(USERS_CONFIG);
   useEffect(() => { setAssigned(task.assignedTeam || []); }, [task.assignedTeam]);
-  const handleAssign = async () => { if(!selectedUser || (!isAdmin && !isMaster) || task.completed) return; await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'tasks', task.id), { assignedTeam: arrayUnion(selectedUser) }); setSelectedUser(''); };
+  const handleAssign = async () => { if(!selectedUser || !isAdmin || task.completed) return; await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'tasks', task.id), { assignedTeam: arrayUnion(selectedUser) }); setSelectedUser(''); };
   return (
     <div className="space-y-4">
-      {(isAdmin || isMaster) && !task.completed && <div className="flex gap-2"><select value={selectedUser} onChange={e=>setSelectedUser(e.target.value)} className="flex-1 border rounded-xl p-3 text-sm font-bold bg-white outline-none"><option value="">-- Seleziona Operatore --</option>{allStaff.map(u => <option key={u.name} value={u.name} disabled={assigned.includes(u.name)}>{u.name} ({u.role})</option>)}</select><button onClick={handleAssign} className="bg-blue-600 text-white px-8 rounded-2xl font-black text-xs uppercase shadow-lg shadow-blue-100">Aggiungi</button></div>}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">{assigned.map(name => { const staff = allStaff.find(u => u.name === name); return (<div key={name} className="p-4 bg-white border rounded-[28px] flex justify-between items-center shadow-sm border-slate-100"><div className="flex items-center gap-4"><div className={`w-10 h-10 rounded-2xl flex items-center justify-center font-black text-sm ${staff?.role === 'Master' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>{name.charAt(0)}</div><span className="text-sm font-black text-slate-800 uppercase tracking-tighter">{name}</span></div>{(isAdmin || isMaster) && !task.completed && <button onClick={async () => await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'tasks', task.id), { assignedTeam: arrayRemove(name) })} className="text-red-400 hover:bg-red-50 p-2 rounded-xl transition-colors"><X size={18}/></button>}</div>); })}</div>
+      {isAdmin && !task.completed && <div className="flex gap-2"><select value={selectedUser} onChange={e=>setSelectedUser(e.target.value)} className="flex-1 border rounded-xl p-3 text-sm font-bold bg-white outline-none"><option value="">-- Seleziona Operatore --</option>{allStaff.map(u => <option key={u.name} value={u.name} disabled={assigned.includes(u.name)}>{u.name} ({u.role})</option>)}</select><button onClick={handleAssign} className="bg-blue-600 text-white px-8 rounded-2xl font-black text-xs uppercase shadow-lg shadow-blue-100">Aggiungi</button></div>}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">{assigned.map(name => { const staff = allStaff.find(u => u.name === name); return (<div key={name} className="p-4 bg-white border rounded-[28px] flex justify-between items-center shadow-sm border-slate-100"><div className="flex items-center gap-4"><div className={`w-10 h-10 rounded-2xl flex items-center justify-center font-black text-sm ${staff?.role === 'Master' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>{name.charAt(0)}</div><span className="text-sm font-black text-slate-800 uppercase tracking-tighter">{name}</span></div>{isAdmin && !task.completed && <button onClick={async () => await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'tasks', task.id), { assignedTeam: arrayRemove(name) })} className="text-red-400 hover:bg-red-50 p-2 rounded-xl transition-colors"><X size={18}/></button>}</div>); })}</div>
     </div>
   );
 }
@@ -348,9 +350,15 @@ function SiteAccounting({ taskId, isMaster }) {
   const [totals, setTotals] = useState({ materials: 0, labor: 0, extra: 0, travel: 0 });
   const [expenses, setExpenses] = useState([]);
   const [newExpense, setNewExpense] = useState({ desc: '', amount: '' });
+  const [materials, setMaterials] = useState([]);
 
   useEffect(() => {
-    const unsubM = onSnapshot(query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'materials'), where('taskId', '==', taskId)), s => { setTotals(prev => ({...prev, materials: s.docs.reduce((sum, d) => sum + (parseFloat(d.data().quantity || 0) * parseFloat(d.data().cost || 0)), 0)})); });
+    // Caricamento dei materiali del cantiere
+    const unsubM = onSnapshot(query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'materials'), where('taskId', '==', taskId)), s => {
+      const matDocs = s.docs.map(d=>({id: d.id, ...d.data()}));
+      setMaterials(matDocs);
+      setTotals(prev => ({...prev, materials: matDocs.reduce((sum, d) => sum + (parseFloat(d.quantity || 0) * parseFloat(d.cost || 0)), 0)}));
+    });
     const unsubL = onSnapshot(query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'daily_reports'), where('taskId', '==', taskId)), s => { const reports = s.docs.map(d=>d.data()); setTotals(prev => ({ ...prev, labor: reports.reduce((sum, d) => sum + (parseFloat(d.hours || 0)), 0) * STANDARD_HOURLY_RATE, travel: reports.filter(d=>d.isTrasferta).length })); });
     const unsubE = onSnapshot(query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'expenses'), where('taskId', '==', taskId)), s => {
       const exp = s.docs.map(d=>({id: d.id, ...d.data()}));
@@ -371,6 +379,10 @@ function SiteAccounting({ taskId, isMaster }) {
     if(window.confirm("Eliminare spesa?")) await deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'expenses', id));
   };
 
+  const deleteMaterial = async (id) => {
+    if(window.confirm("Rimuovere materiale dal cantiere?")) await deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'materials', id));
+  };
+
   return (
     <div className="space-y-6 animate-in fade-in">
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -379,6 +391,22 @@ function SiteAccounting({ taskId, isMaster }) {
         <div className="bg-white p-6 rounded-3xl border shadow-sm text-center"><p className="text-[9px] text-slate-400 uppercase font-black tracking-widest mb-1">Extra</p><p className="text-xl font-bold text-orange-600">€ {totals.extra.toFixed(0)}</p></div>
         <div className="bg-slate-900 p-6 rounded-3xl shadow-xl text-center text-white"><p className="text-[9px] text-slate-400 uppercase font-black tracking-widest mb-1">Totale</p><p className="text-2xl font-bold">€ {(totals.materials + totals.labor + totals.extra).toFixed(0)}</p></div>
       </div>
+      
+      <div className="bg-white p-6 rounded-[32px] border shadow-sm">
+        <h3 className="font-black text-slate-800 uppercase tracking-tighter mb-4">Materiali Impiegati</h3>
+        <div className="space-y-2">
+           {materials.map(m => (
+             <div key={m.id} className="flex justify-between items-center p-3 border-b last:border-0 hover:bg-slate-50">
+               <div><span className="text-sm font-bold text-slate-700 block">{m.name}</span><span className="text-[10px] text-slate-400">{m.quantity} unità a €{m.cost}</span></div>
+               <div className="flex items-center gap-3">
+                 <span className="font-bold text-slate-900">€ {(parseFloat(m.quantity) * parseFloat(m.cost)).toFixed(0)}</span>
+                 {isMaster && <button onClick={()=>deleteMaterial(m.id)} className="text-red-400 hover:text-red-600"><Trash2 size={16}/></button>}
+               </div>
+             </div>
+           ))}
+        </div>
+      </div>
+
       <div className="bg-white p-6 rounded-[32px] border shadow-sm">
         <h3 className="font-black text-slate-800 uppercase tracking-tighter mb-4">Spese Extra</h3>
         {isMaster && (
@@ -466,10 +494,13 @@ function DailyReportsView({ userData, tasks, isMaster, isAdminFull }) {
   const [selected, setSelected] = useState(null);
 
   useEffect(() => {
-    const q = isMaster 
-      ? query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'daily_reports'), orderBy('createdAt', 'desc'), limit(50))
-      : query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'daily_reports'), where('userName', '==', userData.name), orderBy('createdAt', 'desc'), limit(50));
-    return onSnapshot(q, s => setReports(s.docs.map(d=>({id:d.id, ...d.data()}))));
+    // Caricamento semplice e filtraggio locale
+    const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'daily_reports'));
+    return onSnapshot(q, (snap) => {
+      const all = snap.docs.map(d => ({id: d.id, ...d.data()}))
+        .sort((a,b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+      setReports(isMaster ? all.slice(0, 50) : all.filter(r => r.userName === userData.name).slice(0, 50));
+    });
   }, [isMaster, userData?.name]);
 
   const submit = async (e) => {
@@ -492,7 +523,7 @@ function DailyReportsView({ userData, tasks, isMaster, isAdminFull }) {
           <input type="date" value={form.reportDate} onChange={e=>setForm({...form, reportDate: e.target.value})} className="bg-slate-50 border-none rounded-2xl p-4 font-bold text-sm shadow-inner outline-none" required />
         </div>
         <div className="grid grid-cols-2 gap-4">
-           <input type="number" step="0.5" placeholder="Ore" value={form.hours} onChange={e=>setForm({...form, hours: e.target.value})} className="flex-1 bg-slate-50 rounded-3xl p-5 font-bold text-sm border-none shadow-inner outline-none" required />
+           <input type="number" step="0.5" placeholder="Ore" value={form.hours} onChange={e=>setForm({...form, hours: e.target.value})} className="flex-1 bg-slate-50 rounded-2xl p-5 font-bold text-sm border-none shadow-inner outline-none" required />
            <select value={form.vehicleId} onChange={e=>setForm({...form, vehicleId: e.target.value})} className="flex-1 bg-slate-50 border-none rounded-3xl p-5 outline-none font-bold text-sm shadow-inner" required>{STATIC_VEHICLES.map(v => <option key={v} value={v}>{v}</option>)}</select>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -508,7 +539,7 @@ function DailyReportsView({ userData, tasks, isMaster, isAdminFull }) {
       </form>
       <div className="space-y-4">
         {reports.map(r => (
-          <div key={r.id} onClick={()=>setSelected(r)} className="p-6 bg-white border rounded-[36px] flex justify-between items-center shadow-sm border-slate-100 cursor-pointer hover:bg-slate-50">
+          <div key={r.id} onClick={()=>setSelected(r)} className="p-6 bg-white border rounded-[36px] flex justify-between items-center shadow-sm border-slate-100 cursor-pointer hover:bg-slate-50 transition-all">
             <div className="flex-1 pr-4"><p className="font-bold text-slate-800 line-clamp-1 uppercase text-sm">{r.desc}</p><p className="text-[9px] text-slate-400 mt-2 uppercase font-black">{r.userName} • {r.taskTitle} • {r.reportDate} • {r.hours}h {r.isTrasferta ? '• TRASFERTA' : ''}</p></div>
           </div>
         ))}
@@ -520,16 +551,68 @@ function DailyReportsView({ userData, tasks, isMaster, isAdminFull }) {
 
 function MaterialsView({ context = 'warehouse', taskId = null }) {
   const [items, setItems] = useState([]);
+  const [form, setForm] = useState({ name: '', quantity: '', cost: '', supplier: '' });
+  const [showForm, setShowForm] = useState(false);
+
   useEffect(() => {
-    const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'materials'), orderBy('createdAt', 'desc'), limit(50));
+    // Caricamento semplice
+    const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'materials'));
     return onSnapshot(q, s => {
       const all = s.docs.map(d=>({id:d.id, ...d.data()}));
-      setItems(context === 'site' ? all.filter(m=>m.taskId === taskId) : all);
+      setItems(context === 'site' ? all.filter(m=>m.taskId === taskId) : all.filter(m=>!m.taskId));
     });
   }, [context, taskId]);
+
+  const addMaterial = async (e) => {
+    e.preventDefault();
+    await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'materials'), {
+      ...form, taskId: context === 'site' ? taskId : null, createdAt: serverTimestamp()
+    });
+    setForm({ name: '', quantity: '', cost: '', supplier: '' });
+    setShowForm(false);
+  };
+
   return (
-    <div className="bg-white rounded-[40px] border overflow-hidden shadow-sm animate-in fade-in">
-      <div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead className="bg-slate-50 text-slate-400 font-black uppercase text-[10px] border-b tracking-widest"><tr><th className="p-6">Articolo</th><th className="p-6">Stock</th><th className="p-6">Fornitore</th></tr></thead><tbody className="divide-y divide-slate-100">{items.map(i=>(<tr key={i.id} className="hover:bg-slate-50 transition-colors"><td className="p-6 font-black text-slate-800 tracking-tight uppercase text-xs">{i.name}</td><td className="p-6 text-slate-600 font-bold">{i.quantity}</td><td className="p-6 text-slate-400 uppercase text-[9px] font-black">{i.supplier}</td></tr>))}</tbody></table></div>
+    <div className="space-y-6">
+      <div className="flex justify-end">
+        <button onClick={()=>setShowForm(!showForm)} className="bg-blue-600 text-white px-6 py-2 rounded-2xl font-black text-xs uppercase shadow-lg">
+          {showForm ? 'Chiudi' : 'Aggiungi Materiale'}
+        </button>
+      </div>
+
+      {showForm && (
+        <form onSubmit={addMaterial} className="bg-white p-6 rounded-[32px] border shadow-lg space-y-4 animate-in slide-in-from-top-2">
+          <div className="grid grid-cols-2 gap-4">
+            <input placeholder="Nome Materiale" className="bg-slate-50 border-none rounded-xl p-3 text-sm font-bold outline-none" value={form.name} onChange={e=>setForm({...form, name: e.target.value})} required />
+            <input placeholder="Fornitore" className="bg-slate-50 border-none rounded-xl p-3 text-sm font-bold outline-none" value={form.supplier} onChange={e=>setForm({...form, supplier: e.target.value})} />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <input type="number" placeholder="Quantità" className="bg-slate-50 border-none rounded-xl p-3 text-sm font-bold outline-none" value={form.quantity} onChange={e=>setForm({...form, quantity: e.target.value})} required />
+            <input type="number" placeholder="Costo Unitario €" className="bg-slate-50 border-none rounded-xl p-3 text-sm font-bold outline-none" value={form.cost} onChange={e=>setForm({...form, cost: e.target.value})} required />
+          </div>
+          <button className="w-full bg-slate-900 text-white py-3 rounded-xl font-bold text-xs uppercase">Salva in Magazzino</button>
+        </form>
+      )}
+
+      <div className="bg-white rounded-[40px] border overflow-hidden shadow-sm animate-in fade-in">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-slate-50 text-slate-400 font-black uppercase text-[10px] border-b tracking-widest">
+              <tr><th className="p-6">Articolo</th><th className="p-6">Stock</th><th className="p-6">Costo</th><th className="p-6">Fornitore</th></tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {items.map(i=>(
+                <tr key={i.id} className="hover:bg-slate-50 transition-colors">
+                  <td className="p-6 font-black text-slate-800 tracking-tight uppercase text-xs">{i.name}</td>
+                  <td className="p-6 text-slate-600 font-bold">{i.quantity}</td>
+                  <td className="p-6 text-slate-600 font-bold">€ {i.cost}</td>
+                  <td className="p-6 text-slate-400 uppercase text-[9px] font-black">{i.supplier}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 }
@@ -555,7 +638,7 @@ function PersonalAreaView({ user, userData, isMaster, isAdmin }) {
        </div>
        {sub === 'leaves' && <LeaveRequestsPanel currentUser={user} targetIdentifier={targetUser} isMaster={isMaster} isAdmin={isAdmin} userData={userData} />}
        {sub === 'logs' && isMaster && (
-          <div className="bg-white border rounded-[32px] overflow-hidden shadow-sm overflow-x-auto animate-in fade-in"><table className="w-full text-left text-xs"><thead className="bg-slate-50 text-slate-400 font-black uppercase tracking-widest border-b"><tr><th className="p-5">Membro</th><th className="p-5">Azione</th><th className="p-5">Data</th></tr></thead><tbody className="divide-y">{logs.map(l=>(<tr key={l.id} className="hover:bg-slate-50 transition-colors"><td className="p-5 font-bold uppercase text-[10px]">{l.userName}</td><td className="p-5 text-[10px]">{l.action}</td><td className="p-5 text-[9px] text-slate-400">{formatTimestamp(l.createdAt)}</td></tr>))}</tbody></table></div>
+          <div className="bg-white border rounded-[32px] overflow-hidden shadow-sm overflow-x-auto animate-in fade-in"><table className="w-full text-left text-xs"><thead className="bg-slate-50 text-slate-400 font-black uppercase tracking-widest border-b"><tr><th className="p-5">Membro</th><th className="p-5">Azione</th><th className="p-5">GPS</th><th className="p-5">Data</th></tr></thead><tbody className="divide-y">{logs.map(l=>(<tr key={l.id} className="hover:bg-slate-50 transition-colors"><td className="p-5 font-bold uppercase text-[10px]">{l.userName}</td><td className="p-5 text-[10px]">{l.action}</td><td className="p-5 font-mono text-blue-500 uppercase text-[9px]">{l.location}</td><td className="p-5 text-[9px] text-slate-400">{formatTimestamp(l.createdAt)}</td></tr>))}</tbody></table></div>
        )}
     </div>
   );
@@ -620,7 +703,8 @@ function TaskDetailContainer({ task, userData, isMaster, isAdminFull, onBack }) 
     { id: 'schedule', label: 'Crono', icon: CalendarRange }, 
     { id: 'accounting', label: 'Costi', icon: Calculator }, 
     { id: 'requests', label: 'Ordini', icon: ShoppingCart }, 
-    { id: 'photos', label: 'Foto', icon: Camera } 
+    { id: 'photos', label: 'Foto', icon: Camera },
+    { id: 'materials', label: 'Magazzino', icon: Package } // Aggiunta scheda materiali locale
   ];
 
   return (
@@ -638,12 +722,12 @@ function TaskDetailContainer({ task, userData, isMaster, isAdminFull, onBack }) 
         {active === 'overview' && <SiteOverview task={task} isMaster={isMaster} isAdminFull={isAdminFull} userData={userData} />}
         {active === 'chat' && <SiteChat taskId={task.id} userData={userData} isClosed={isClosed} />}
         {active === 'reports' && <SiteReportsList taskId={task.id} isMaster={isMaster} userData={userData} isAdminFull={isAdminFull} />}
-        {active === 'team' && <SiteTeam task={task} isAdminFull={isAdminFull} />}
-        {active === 'documents' && <SiteDocuments taskId={task.id} isAdminFull={isAdminFull} userData={userData} isClosed={isClosed} />}
-        {active === 'schedule' && <SiteSchedule task={task} isAdminFull={isAdminFull} />}
+        {active === 'team' && <SiteTeam task={task} isAdmin={isAdminFull} isMaster={isMaster} />}
+        {active === 'documents' && <SiteDocuments taskId={task.id} isAdmin={isAdminFull} userData={userData} isClosed={isClosed} />}
+        {active === 'schedule' && <SiteSchedule task={task} isAdmin={isAdminFull} />}
         {active === 'accounting' && isMaster && <SiteAccounting taskId={task.id} isMaster={isMaster} />}
         {active === 'requests' && <MaterialRequestsView taskId={task.id} userData={userData} isClosed={isClosed} />}
-        {active === 'photos' && <SitePhotos taskId={task.id} userData={userData} isAdminFull={isAdminFull} isClosed={isClosed} />}
+        {active === 'photos' && <SitePhotos taskId={task.id} userData={userData} isAdmin={isAdminFull} isClosed={isClosed} />}
         {active === 'materials' && <MaterialsView context="site" taskId={task.id} />}
       </div>
     </div>
@@ -697,7 +781,7 @@ function DashboardContainer({ user, userData }) {
   return (
     <div className="pb-24">
       <header className="bg-white/90 backdrop-blur-md border-b sticky top-0 z-40 h-20 flex items-center justify-between px-6 shadow-sm"><div className="flex items-center gap-4"><div className="bg-blue-600 p-2.5 rounded-2xl text-white shadow-xl shadow-blue-200"><LayoutDashboard size={20} /></div><div className="hidden sm:block"><h1 className="font-black text-slate-800 uppercase tracking-tighter text-xl leading-none">Impresadaria</h1><span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{safeUserData.role}</span></div></div><div className="flex items-center gap-5"><div className="relative"><button onClick={() => setShowNotifPanel(!showNotifPanel)} className="p-3 bg-slate-50 rounded-2xl relative text-slate-400 border border-slate-200 hover:bg-white hover:text-blue-600 transition-all shadow-inner"><Bell size={20} />{notifications.filter(n=>!n.read).length > 0 && <span className="absolute top-2 right-2 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-white"></span>}</button>{showNotifPanel && <div className="absolute right-0 top-14 w-80 bg-white rounded-[32px] shadow-2xl border-4 border-slate-50 p-2 z-50 animate-in zoom-in-95"><div className="p-4 border-b flex justify-between items-center font-black text-[11px] uppercase text-slate-400">Notifiche {isAdminFull && <button onClick={clearNotifications} className="text-red-500 hover:underline">Svuota</button>} <button onClick={()=>setShowNotifPanel(false)} className="bg-slate-100 p-1 rounded-lg"><X size={14}/></button></div><div className="max-h-80 overflow-y-auto scrollbar-hide">{notifications.length === 0 ? <p className="text-center py-10 text-xs text-slate-300 font-bold uppercase tracking-widest">Nessun avviso</p> : notifications.map(n => (<div key={n.id} onClick={async () => await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'notifications', n.id), { read: true })} className={`p-5 border-b last:border-none cursor-pointer hover:bg-slate-50 transition-colors ${!n.read ? 'bg-blue-50/40' : ''}`}><p className="text-xs font-black text-slate-800 uppercase leading-tight">{n.title}</p><p className="text-[10px] text-slate-500 mt-2 font-medium leading-relaxed">{n.message}</p></div>)) }</div></div>}</div><button onClick={()=>signOut(auth)} className="p-3 bg-slate-50 rounded-2xl text-slate-300 hover:text-red-500 border border-slate-200 transition-all"><LogOut size={20} /></button></div></header>
-      <main className="max-w-7xl mx-auto p-4 sm:p-10">{!selectedTask && <div className="flex bg-white/50 backdrop-blur-md p-1.5 rounded-[32px] border border-slate-200 shadow-sm mb-10 overflow-x-auto scrollbar-hide">{[ {id:'tasks', label:'Cantieri'}, {id:'reports', label:'Report'}, {id:'materials', label:'Magazzino'}, {id:'personal', label:'Profilo'} ].map(tab => (<button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`px-8 py-3.5 rounded-[24px] text-[11px] font-black uppercase tracking-[0.2em] transition-all ${activeTab === tab.id ? 'bg-slate-900 text-white shadow-xl shadow-slate-200' : 'text-slate-400 hover:bg-white'}`}>{tab.label}</button>))}</div>}{selectedTask ? <TaskDetailContainer task={selectedTask} userData={safeUserData} isMaster={isMaster} isAdminFull={isAdminFull} onBack={() => setSelectedTask(null)} /> : activeTab === 'tasks' ? <TasksView userData={safeUserData} isAdminFull={isAdminFull} onSelectTask={setSelectedTask} /> : activeTab === 'reports' ? <DailyReportsView userData={safeUserData} tasks={allTasks} isMaster={isMaster} isAdminFull={isAdminFull} /> : activeTab === 'materials' ? <MaterialsView /> : <PersonalAreaView user={user} userData={safeUserData} isMaster={isMaster} isAdminFull={isAdminFull} />}</main>
+      <main className="max-w-7xl mx-auto p-4 sm:p-10">{!selectedTask && <div className="flex bg-white/50 backdrop-blur-md p-1.5 rounded-[32px] border border-slate-200 shadow-sm mb-10 overflow-x-auto scrollbar-hide">{[ {id:'tasks', label:'Cantieri'}, {id:'reports', label:'Report'}, {id:'materials', label:'Magazzino'}, {id:'personal', label:'Profilo'} ].map(tab => (<button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`px-8 py-3.5 rounded-[24px] text-[11px] font-black uppercase tracking-[0.2em] transition-all ${activeTab === tab.id ? 'bg-slate-900 text-white shadow-xl shadow-slate-200' : 'text-slate-400 hover:bg-white'}`}>{tab.label}</button>))}</div>}{selectedTask ? <TaskDetailContainer task={selectedTask} userData={safeUserData} isMaster={isMaster} isAdminFull={isAdminFull} onBack={() => setSelectedTask(null)} /> : activeTab === 'tasks' ? <TasksView userData={safeUserData} isAdmin={isAdminFull} onSelectTask={setSelectedTask} /> : activeTab === 'reports' ? <DailyReportsView userData={safeUserData} tasks={allTasks} isMaster={isMaster} isAdminFull={isAdminFull} /> : activeTab === 'materials' ? <MaterialsView /> : <PersonalAreaView user={user} userData={safeUserData} isMaster={isMaster} isAdminFull={isAdminFull} />}</main>
     </div>
   );
 }
