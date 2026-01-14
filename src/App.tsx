@@ -25,12 +25,13 @@ import {
 } from 'firebase/firestore';
 import { 
   Activity, Plus, Trash2, CheckCircle, LogOut, Loader2, User, Lock, 
-  LayoutDashboard, ShieldCheck, Package, Wrench, ClipboardList, 
-  Building2, FileText, ArrowLeft, Camera, Calculator, HardHat, 
-  Edit2, Save, X, Calendar, Clock, ShoppingCart, CheckSquare, 
+  LayoutDashboard, ShieldCheck, Package, Wrench, Euro, ClipboardList, 
+  Building2, FileText, ArrowLeft, Camera, Image, Calculator, HardHat, 
+  Edit2, Save, X, Calendar, Clock, Briefcase, ShoppingCart, CheckSquare, 
   Users, FileCheck, Download, CalendarRange, Bell, UserCheck, FileUp, 
-  Maximize2, Truck, PenTool, MessageSquare, MapPin, Send, Timer, 
-  LockKeyhole, Map
+  Maximize2, Truck, AlertTriangle, PenTool, MessageSquare, MapPin, 
+  Send, ShieldAlert, Timer, Eye, LockKeyhole, UnlockKeyhole, FileBarChart, Map,
+  FileSpreadsheet
 } from 'lucide-react';
 
 // --- CONFIGURAZIONE FIREBASE ---
@@ -44,23 +45,12 @@ const firebaseConfig = {
   measurementId: "G-N8KSTTS8ET"
 };
 
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
+const firebaseApp = initializeApp(firebaseConfig);
+const auth = getAuth(firebaseApp);
+const db = getFirestore(firebaseApp);
 
 const APP_ID = typeof __app_id !== 'undefined' ? __app_id : 'impresadaria-v1';
 const STANDARD_HOURLY_RATE = 30.00;
-
-// --- LISTA MEZZI STATICA ---
-const COMPANY_VEHICLES = [
-  "Ford Transit Custom",
-  "Fiat Doblò",
-  "Volvo XC60",
-  "Ford Galaxy",
-  "Iveco Daily 1",
-  "Iveco Daily 2",
-  "Mezzo Proprio/Altro"
-];
 
 // --- CONFIGURAZIONE UTENTI ---
 const USERS_CONFIG = {
@@ -77,34 +67,32 @@ const USERS_CONFIG = {
 };
 
 // --- HELPERS ---
+
 async function logOperation(userData, action, details) {
   let location = "N/D";
   try {
     if (navigator.geolocation) {
-      const pos = await new Promise((res, rej) => navigator.geolocation.getCurrentPosition(res, rej, { timeout: 2000 }));
-      location = `${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)}`;
+      const pos = await new Promise((res, rej) => navigator.geolocation.getCurrentPosition(res, rej, { timeout: 3000 }));
+      location = `${pos.coords.latitude.toFixed(5)}, ${pos.coords.longitude.toFixed(5)}`;
     }
-  } catch (e) {}
+  } catch (e) { location = "Non rilevata"; }
   try {
     await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'audit_logs'), {
-      userId: userData?.uid || 'anon', userName: userData?.name || 'Utente', action, details: String(details), location, createdAt: serverTimestamp()
+      userId: userData?.uid || 'anon', 
+      userName: userData?.name || 'Utente', 
+      action, 
+      details: String(details), 
+      location, 
+      createdAt: serverTimestamp()
     });
   } catch (e) {}
 }
 
-const sendNotification = async (targetUserId, title, message, type = 'info') => {
-  try {
-    await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'notifications'), {
-      targetUserId, title, message, type, read: false, createdAt: serverTimestamp()
-    });
-  } catch (e) {}
-};
-
 function LoadingScreen() {
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50 text-slate-400">
+    <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50 text-slate-500">
       <Loader2 className="w-10 h-10 animate-spin text-blue-600 mb-4" />
-      <p className="text-xs font-black uppercase tracking-widest">Caricamento...</p>
+      <p className="font-medium animate-pulse">Sincronizzazione ImpresadariAPP...</p>
     </div>
   );
 }
@@ -136,7 +124,6 @@ function SiteOverview({ task, isMaster, isAdmin, userData }) {
     try {
       await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'tasks', task.id), { completed: newStatus });
       await logOperation(userData, newStatus ? "Chiusura Cantiere" : "Riapertura Cantiere", task.title);
-      await sendNotification('all_masters', newStatus ? 'Cantiere Chiuso' : 'Cantiere Riaperto', `Il cantiere ${task.title} è stato ${newStatus ? 'chiuso' : 'riaperto'}.`);
     } catch (e) { alert("Errore"); }
   };
 
@@ -351,6 +338,47 @@ function SitePhotos({ taskId, userData, isAdmin, isClosed }) {
   );
 }
 
+// --- NUOVA VISTA REPORT NEL CANTIERE ---
+function SiteReports({ taskId, userData, isMaster }) {
+  const [reports, setReports] = useState([]);
+  
+  useEffect(() => {
+    // I Master vedono tutti i report del cantiere, i dipendenti solo i propri per quel cantiere
+    const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'daily_reports'), where('taskId', '==', taskId), orderBy('createdAt', 'desc'));
+    return onSnapshot(q, (snap) => {
+      const all = snap.docs.map(d => ({id: d.id, ...d.data()}));
+      if (isMaster) {
+        setReports(all);
+      } else {
+        setReports(all.filter(r => r.userName === userData.name));
+      }
+    });
+  }, [taskId, isMaster, userData.name]);
+
+  return (
+    <div className="space-y-4">
+      {reports.length === 0 ? <p className="text-center py-10 text-slate-300 font-black uppercase text-xs tracking-widest">Nessun rapporto registrato</p> : 
+        reports.map(r => (
+          <div key={r.id} className="p-5 bg-white border rounded-[32px] flex justify-between items-center shadow-sm">
+            <div>
+               <p className="text-sm font-black text-slate-800 uppercase tracking-tighter leading-none">{r.desc}</p>
+               <div className="flex gap-2 mt-2">
+                 <span className="text-[10px] bg-slate-100 px-2 py-0.5 rounded text-slate-500 font-bold uppercase">{r.userName}</span>
+                 <span className="text-[10px] bg-blue-50 px-2 py-0.5 rounded text-blue-600 font-bold uppercase">{r.vehicleName}</span>
+                 {r.isTrasferta && <span className="text-[10px] bg-orange-50 px-2 py-0.5 rounded text-orange-600 font-bold uppercase">Trasferta</span>}
+               </div>
+            </div>
+            <div className="text-right">
+              <p className="text-xl font-black text-slate-800">{r.hours}h</p>
+              <p className="text-[9px] text-slate-400 font-bold uppercase">{r.createdAt?.seconds ? new Date(r.createdAt.seconds * 1000).toLocaleDateString() : ''}</p>
+            </div>
+          </div>
+        ))
+      }
+    </div>
+  );
+}
+
 function MaterialRequestsView({ taskId, userData, isClosed }) {
   const [requests, setRequests] = useState([]); const [item, setItem] = useState('');
   useEffect(() => { const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'material_requests'), where('taskId', '==', taskId)); return onSnapshot(q, (snap) => setRequests(snap.docs.map(d => ({id: d.id, ...d.data()})))); }, [taskId]);
@@ -440,13 +468,18 @@ function TasksView({ userData, isAdmin, onSelectTask }) {
   );
 }
 
-function DailyReportsView({ userData, tasks }) {
+function DailyReportsView({ userData, tasks, isMaster }) {
   const [reports, setReports] = useState([]);
   const [form, setForm] = useState({ taskId: '', hours: '', desc: '', vehicleId: '', isTrasferta: false });
 
   useEffect(() => {
-    onSnapshot(query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'daily_reports'), orderBy('createdAt', 'desc'), limit(15)), s => setReports(s.docs.map(d=>({id:d.id, ...d.data()}))));
-  }, []);
+    // Logica di visualizzazione Report Generali: Master vede tutti, Dipendenti vedono i propri
+    const q = isMaster 
+      ? query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'daily_reports'), orderBy('createdAt', 'desc'), limit(50))
+      : query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'daily_reports'), where('userName', '==', userData.name), orderBy('createdAt', 'desc'), limit(50));
+      
+    return onSnapshot(q, s => setReports(s.docs.map(d=>({id:d.id, ...d.data()}))));
+  }, [isMaster, userData.name]);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -576,7 +609,6 @@ function LeaveRequestsPanel({ currentUser, targetIdentifier, isMaster, isAdmin, 
               )}
             </div>
           ))}
-          {leaves.length === 0 && <p className="text-center py-20 text-slate-300 font-black uppercase text-[10px] tracking-widest">Nessuna voce</p>}
       </div>
     </div>
   );
@@ -590,11 +622,12 @@ function TaskDetailContainer({ task, userData, isMaster, isAdmin, onBack }) {
   const tabs = [ 
     { id: 'overview', label: 'Info', icon: Activity }, 
     { id: 'chat', label: 'Chat', icon: MessageSquare }, 
+    { id: 'reports', label: 'Rapportini', icon: ClipboardList }, // NUOVA TAB
     { id: 'team', label: 'Squadra', icon: Users }, 
     { id: 'documents', label: 'File', icon: FileCheck }, 
     { id: 'schedule', label: 'Crono', icon: CalendarRange }, 
     { id: 'accounting', label: 'Costi', icon: Calculator }, 
-    { id: 'requests', label: 'Richieste', icon: ShoppingCart }, 
+    { id: 'requests', label: 'Ordini', icon: ShoppingCart }, 
     { id: 'photos', label: 'Foto', icon: Camera } 
   ];
 
@@ -612,6 +645,7 @@ function TaskDetailContainer({ task, userData, isMaster, isAdmin, onBack }) {
       <div className="mt-4">
         {active === 'overview' && <SiteOverview task={task} isMaster={isMaster} isAdmin={isAdmin} userData={userData} />}
         {active === 'chat' && <SiteChat taskId={task.id} userData={userData} isClosed={isClosed} />}
+        {active === 'reports' && <SiteReports taskId={task.id} userData={userData} isMaster={isMaster} />}
         {active === 'team' && <SiteTeam task={task} isAdmin={isAdmin} />}
         {active === 'documents' && <SiteDocuments taskId={task.id} isAdmin={isAdmin} userData={userData} isClosed={isClosed} />}
         {active === 'schedule' && <SiteSchedule task={task} isAdmin={isAdmin} />}
@@ -651,7 +685,7 @@ function DashboardContainer({ user, userData }) {
   return (
     <div className="pb-24">
       <header className="bg-white/90 backdrop-blur-md border-b sticky top-0 z-40 h-20 flex items-center justify-between px-6 shadow-sm"><div className="flex items-center gap-4"><div className="bg-blue-600 p-2.5 rounded-2xl text-white shadow-xl"><LayoutDashboard size={20} /></div><div className="hidden sm:block"><h1 className="font-black text-slate-800 uppercase tracking-tighter text-xl leading-none">Impresadaria</h1><span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{safeUserData.role}</span></div></div><div className="flex items-center gap-5"><div className="relative"><button onClick={() => setShowNotifPanel(!showNotifPanel)} className="p-3 bg-slate-50 rounded-2xl relative text-slate-400 border border-slate-200"><Bell size={20} />{notifications.filter(n=>!n.read).length > 0 && <span className="absolute top-2 right-2 w-2.5 h-2.5 bg-red-500 rounded-full"></span>}</button>{showNotifPanel && <div className="absolute right-0 top-14 w-80 bg-white rounded-[32px] shadow-2xl border-4 border-slate-50 p-2 z-50 animate-in zoom-in-95"><div className="p-4 border-b flex justify-between items-center font-black text-[11px] uppercase text-slate-400">Notifiche <button onClick={()=>setShowNotifPanel(false)}><X size={14}/></button></div><div className="max-h-80 overflow-y-auto">{notifications.length === 0 ? <p className="text-center py-10 text-xs text-slate-300 font-bold uppercase">Nessun avviso</p> : notifications.map(n => (<div key={n.id} onClick={async () => await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'notifications', n.id), { read: true })} className={`p-5 border-b last:border-none cursor-pointer hover:bg-slate-50 ${!n.read ? 'bg-blue-50/50' : ''}`}><p className="text-xs font-black text-slate-800 uppercase leading-tight">{n.title}</p><p className="text-[10px] text-slate-500 mt-2 font-medium">{n.message}</p></div>)) }</div></div>}</div><button onClick={()=>signOut(auth)} className="p-3 bg-slate-50 rounded-2xl text-slate-300 hover:text-red-500 border border-slate-200 transition-all"><LogOut size={20} /></button></div></header>
-      <main className="max-w-7xl mx-auto p-4 sm:p-10">{!selectedTask && <div className="flex bg-white/50 backdrop-blur-md p-1.5 rounded-[32px] border border-slate-200 shadow-sm mb-10 overflow-x-auto scrollbar-hide">{[ {id:'tasks', label:'Cantieri'}, {id:'reports', label:'Report'}, {id:'materials', label:'Magazzino'}, {id:'personal', label:'Profilo'} ].map(tab => (<button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`px-8 py-3.5 rounded-[24px] text-[11px] font-black uppercase tracking-[0.2em] transition-all ${activeTab === tab.id ? 'bg-slate-900 text-white shadow-xl shadow-slate-200' : 'text-slate-400 hover:bg-white'}`}>{tab.label}</button>))}</div>}{selectedTask ? <TaskDetailContainer task={selectedTask} userData={safeUserData} isMaster={isMaster} isAdmin={isAdmin} onBack={() => setSelectedTask(null)} /> : activeTab === 'tasks' ? <TasksView userData={safeUserData} isAdmin={isAdmin} onSelectTask={setSelectedTask} /> : activeTab === 'reports' ? <DailyReportsView userData={safeUserData} tasks={allTasks} /> : activeTab === 'materials' ? <MaterialsView /> : <PersonalAreaView user={user} userData={safeUserData} isMaster={isMaster} isAdmin={isAdmin} />}</main>
+      <main className="max-w-7xl mx-auto p-4 sm:p-10">{!selectedTask && <div className="flex bg-white/50 backdrop-blur-md p-1.5 rounded-[32px] border border-slate-200 shadow-sm mb-10 overflow-x-auto scrollbar-hide">{[ {id:'tasks', label:'Cantieri'}, {id:'reports', label:'Report'}, {id:'materials', label:'Magazzino'}, {id:'personal', label:'Profilo'} ].map(tab => (<button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`px-8 py-3.5 rounded-[24px] text-[11px] font-black uppercase tracking-[0.2em] transition-all ${activeTab === tab.id ? 'bg-slate-900 text-white shadow-xl shadow-slate-200' : 'text-slate-400 hover:bg-white'}`}>{tab.label}</button>))}</div>}{selectedTask ? <TaskDetailContainer task={selectedTask} userData={safeUserData} isMaster={isMaster} isAdmin={isAdmin} onBack={() => setSelectedTask(null)} /> : activeTab === 'tasks' ? <TasksView userData={safeUserData} isAdmin={isAdmin} onSelectTask={setSelectedTask} /> : activeTab === 'reports' ? <DailyReportsView userData={safeUserData} tasks={allTasks} isMaster={isMaster} /> : activeTab === 'materials' ? <MaterialsView /> : <PersonalAreaView user={user} userData={safeUserData} isMaster={isMaster} isAdmin={isAdmin} />}</main>
     </div>
   );
 }
