@@ -65,79 +65,266 @@ const USERS_CONFIG = {
   'c.tardiota': { role: 'Dipendente', name: 'Carmine Tardiota' }
 };
 
-// --- HELPERS ---
+// --- HELPERS DI SISTEMA ---
+
 async function logOperation(userData, action, details) {
   let location = "N/D";
   try {
     if (navigator.geolocation) {
-      const pos = await new Promise((res, rej) => navigator.geolocation.getCurrentPosition(res, rej, { timeout: 2000 }));
-      location = `${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)}`;
+      const pos = await new Promise((res, rej) => navigator.geolocation.getCurrentPosition(res, rej, { timeout: 3000 }));
+      location = `${pos.coords.latitude.toFixed(5)}, ${pos.coords.longitude.toFixed(5)}`;
     }
-  } catch (e) {}
+  } catch (e) { location = "Non rilevata"; }
   try {
     await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'audit_logs'), {
-      userId: userData?.uid || 'anon', userName: userData?.name || 'Utente', action, details: String(details), location, createdAt: serverTimestamp()
+      userId: userData?.uid || 'anon', 
+      userName: userData?.name || 'Utente', 
+      action, 
+      details: String(details), 
+      location, 
+      createdAt: serverTimestamp()
     });
   } catch (e) {}
 }
 
-// --- COMPONENTI UI ATOMICI ---
-const LoadingScreen = () => (
-  <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50 text-slate-400">
-    <Loader2 className="w-10 h-10 animate-spin text-blue-600 mb-4" />
-    <p className="text-xs font-black uppercase tracking-widest">Caricamento...</p>
-  </div>
-);
+async function sendNotification(targetUserId, title, message, type = 'info') {
+  try {
+    await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'notifications'), {
+      targetUserId, title, message, type, read: false, createdAt: serverTimestamp()
+    });
+  } catch (e) {}
+}
 
-// --- COMPONENTI AREA PERSONALE ---
-function LeaveRequestsPanel({ currentUser, targetIdentifier, isAdmin, userData }) {
-  const [leaves, setLeaves] = useState([]);
-  const [form, setForm] = useState({ start: '', end: '', type: 'Ferie' });
+function LoadingScreen() {
+  return (
+    <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50 text-slate-500">
+      <Loader2 className="w-10 h-10 animate-spin text-blue-600 mb-4" />
+      <p className="font-medium animate-pulse">Sincronizzazione ImpresadariAPP...</p>
+    </div>
+  );
+}
+
+// --- COMPONENTI SEZIONI CANTIERE ---
+
+function SiteOverview({ task, isMaster, isAdmin, userData }) {
+  const [totals, setTotals] = useState({ materials: 0, hours: 0, cost: 0, travel: 0 });
+  const nextPhase = task.schedule?.find(p => new Date(p.end) >= new Date());
 
   useEffect(() => {
-    const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'leaves'));
-    return onSnapshot(q, (snap) => {
-      const all = snap.docs.map(d => ({id: d.id, ...d.data()}));
-      setLeaves(all.filter(l => (targetIdentifier === currentUser.uid ? l.userId === currentUser.uid : l.username === targetIdentifier)).sort((a,b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)));
+    const unsubM = onSnapshot(query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'materials'), where('taskId', '==', task.id)), s => {
+      const mat = s.docs.reduce((sum, d) => sum + (parseFloat(d.data().quantity || 0) * parseFloat(d.data().cost || 0)), 0);
+      setTotals(prev => ({...prev, materials: mat}));
     });
-  }, [targetIdentifier, currentUser]);
+    const unsubL = onSnapshot(query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'daily_reports'), where('taskId', '==', task.id)), s => {
+      const reports = s.docs.map(d=>d.data());
+      const hrs = reports.reduce((sum, d) => sum + (parseFloat(d.hours || 0)), 0);
+      const travelCount = reports.filter(d => d.isTrasferta).length;
+      setTotals(prev => ({...prev, hours: hrs, cost: hrs * STANDARD_HOURLY_RATE, travel: travelCount}));
+    });
+    return () => { unsubM(); unsubL(); };
+  }, [task.id]);
 
-  const submit = async (e) => {
-    e.preventDefault();
-    if (!form.start || !form.end) return;
-    await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'leaves'), {
-      ...form, userId: currentUser.uid, username: currentUser.email?.split('@')[0], fullName: userData?.name || 'Utente', status: 'pending', createdAt: serverTimestamp()
-    });
-    setForm({ start: '', end: '', type: 'Ferie' });
+  const handleToggleStatus = async () => {
+    const newStatus = !task.completed;
+    if (newStatus && !window.confirm("Chiudere il cantiere? Tutte le attività saranno bloccate.")) return;
+    if (!newStatus && !isAdmin) return;
+
+    try {
+      await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'tasks', task.id), { completed: newStatus });
+      await logOperation(userData, newStatus ? "Chiusura Cantiere" : "Riapertura Cantiere", task.title);
+    } catch (e) { alert("Errore"); }
   };
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 animate-in fade-in">
-      {targetIdentifier === currentUser.uid && (
-        <div className="bg-white p-6 rounded-[32px] border shadow-sm h-fit space-y-4">
-          <h3 className="font-black text-slate-700 uppercase text-[10px] tracking-widest">Richiesta Assenza</h3>
-          <form onSubmit={submit} className="space-y-3">
-            <select className="w-full bg-slate-50 rounded-xl p-3 text-sm font-bold border-none outline-none" value={form.type} onChange={e=>setForm({...form, type: e.target.value})}><option>Ferie</option><option>Permesso</option><option>Malattia</option></select>
-            <input type="date" className="w-full bg-slate-50 rounded-xl p-3 text-sm font-bold border-none" value={form.start} onChange={e=>setForm({...form, start: e.target.value})} required/>
-            <input type="date" className="w-full bg-slate-50 rounded-xl p-3 text-sm font-bold border-none" value={form.end} onChange={e=>setForm({...form, end: e.target.value})} required/>
-            <button type="submit" className="w-full bg-blue-600 text-white p-3 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-lg">Invia</button>
-          </form>
+    <div className="space-y-6">
+      <div className={`p-6 rounded-[32px] border flex flex-col sm:flex-row justify-between items-center gap-4 ${task.completed ? 'bg-slate-900 border-slate-800 text-white shadow-xl' : 'bg-white border-slate-200'}`}>
+        <div className="flex items-center gap-4">
+          <div className={`p-3 rounded-2xl ${task.completed ? 'bg-slate-800 text-green-400' : 'bg-blue-50 text-blue-600'}`}>
+            {task.completed ? <LockKeyhole size={24}/> : <Activity size={24}/>}
+          </div>
+          <div>
+            <h4 className="font-black uppercase tracking-tighter text-xs">Stato Attuale</h4>
+            <p className={`text-sm font-bold ${task.completed ? 'text-slate-400' : 'text-blue-500'}`}>{task.completed ? 'CANTIERE ARCHIVIATO' : 'CANTIERE IN CORSO'}</p>
+          </div>
+        </div>
+        {isMaster && (
+          <div className="flex gap-2 w-full sm:w-auto">
+            {!task.completed ? (
+              <button onClick={handleToggleStatus} className="w-full sm:w-auto bg-red-600 text-white px-6 py-3 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg">Chiudi Cantiere</button>
+            ) : isAdmin && (
+              <button onClick={handleToggleStatus} className="w-full sm:w-auto bg-blue-600 text-white px-6 py-3 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg">Riapri</button>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="bg-white p-6 rounded-[32px] border shadow-sm flex flex-col justify-between">
+           <div className="flex justify-between items-start">
+             <div>
+               <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Inquadramento</h4>
+               <p className="text-lg font-black text-slate-800 uppercase tracking-tight flex items-center gap-2 mt-1">
+                 <MapPin size={18} className={task.isTrasfertaSite ? "text-orange-500" : "text-slate-300"}/>
+                 {task.isTrasfertaSite ? 'Fuori Sede' : 'Locale'}
+               </p>
+             </div>
+           </div>
+           <div className="mt-4 pt-4 border-t flex items-center gap-4">
+              <div className="bg-orange-50 text-orange-600 p-2 rounded-xl"><Map size={20}/></div>
+              <div>
+                 <p className="text-[10px] font-black text-slate-400 uppercase leading-none">Trasferte Totali</p>
+                 <p className="text-xl font-black text-slate-800">{totals.travel} <span className="text-xs font-bold text-slate-400">gg</span></p>
+              </div>
+           </div>
+        </div>
+
+        <div className="bg-white p-6 rounded-[32px] border shadow-sm">
+           <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Metriche Cantiere</h4>
+           <div className="grid grid-cols-2 gap-4">
+              <div>
+                <p className="text-[10px] font-black text-slate-400 uppercase">Ore</p>
+                <p className="text-xl font-black text-slate-800">{totals.hours} H</p>
+              </div>
+              <div>
+                <p className="text-[10px] font-black text-slate-400 uppercase">Materiali</p>
+                <p className="text-xl font-black text-slate-800">€ {totals.materials.toFixed(0)}</p>
+              </div>
+           </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SiteChat({ taskId, userData, isClosed }) {
+  const [messages, setMessages] = useState([]);
+  const [newMessage, setNewMessage] = useState('');
+  const scrollRef = useRef(null);
+
+  useEffect(() => {
+    const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'site_chats'), where('taskId', '==', taskId), orderBy('createdAt', 'asc'));
+    return onSnapshot(q, (snap) => {
+      setMessages(snap.docs.map(d => ({id: d.id, ...d.data()})));
+      if(scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    });
+  }, [taskId]);
+
+  const sendMessage = async (e) => {
+    e.preventDefault();
+    if(isClosed || !newMessage.trim()) return;
+    await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'site_chats'), {
+      taskId, userId: userData.uid, userName: userData.name, message: newMessage, createdAt: serverTimestamp()
+    });
+    setNewMessage('');
+  };
+
+  return (
+    <div className="flex flex-col h-[400px] bg-white rounded-3xl border overflow-hidden shadow-sm">
+      <div className="flex-1 p-4 overflow-y-auto bg-slate-50 space-y-4" ref={scrollRef}>
+        {messages.map(msg => (
+          <div key={msg.id} className={`flex flex-col ${msg.userId === userData.uid ? 'items-end' : 'items-start'}`}>
+            <div className={`max-w-[85%] px-4 py-2 rounded-2xl text-sm ${msg.userId === userData.uid ? 'bg-blue-600 text-white rounded-br-none' : 'bg-white border text-slate-800 rounded-bl-none shadow-sm'}`}>
+              {msg.userId !== userData.uid && <p className="text-[10px] font-bold text-blue-600 mb-1 uppercase">{msg.userName}</p>}
+              {msg.message}
+            </div>
+          </div>
+        ))}
+      </div>
+      {!isClosed ? (
+        <form onSubmit={sendMessage} className="p-3 bg-white border-t flex gap-2">
+          <input className="flex-1 bg-slate-100 border-none rounded-xl px-4 py-2 text-sm outline-none" placeholder="Messaggio..." value={newMessage} onChange={e=>setNewMessage(e.target.value)} />
+          <button type="submit" className="bg-blue-600 text-white p-2 rounded-xl active:scale-90 transition-transform"><Send size={18}/></button>
+        </form>
+      ) : <div className="p-4 text-center text-xs text-slate-400 font-bold uppercase border-t">Cantiere Chiuso</div>}
+    </div>
+  );
+}
+
+function SiteTeam({ task, isAdmin }) {
+  const [assigned, setAssigned] = useState(task.assignedTeam || []);
+  const [selectedUser, setSelectedUser] = useState('');
+  const allStaff = Object.values(USERS_CONFIG);
+
+  useEffect(() => { setAssigned(task.assignedTeam || []); }, [task.assignedTeam]);
+
+  const handleAssign = async () => {
+    if(!selectedUser || !isAdmin || task.completed) return;
+    await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'tasks', task.id), { assignedTeam: arrayUnion(selectedUser) });
+    setSelectedUser('');
+  };
+
+  return (
+    <div className="space-y-4">
+      {isAdmin && !task.completed && (
+        <div className="flex gap-2">
+          <select value={selectedUser} onChange={e=>setSelectedUser(e.target.value)} className="flex-1 border rounded-xl p-3 text-sm font-bold bg-white outline-none focus:ring-2 focus:ring-blue-600">
+            <option value="">-- Seleziona Membro --</option>
+            {allStaff.map(u => <option key={u.name} value={u.name} disabled={assigned.includes(u.name)}>{u.name} ({u.role})</option>)}
+          </select>
+          <button onClick={handleAssign} className="bg-blue-600 text-white px-8 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg">Aggiungi</button>
         </div>
       )}
-      <div className={`col-span-1 ${targetIdentifier === currentUser.uid ? 'md:col-span-2' : 'md:col-span-3'} space-y-3`}>
-        {leaves.map(req => (
-          <div key={req.id} className="bg-white p-5 rounded-[28px] border shadow-sm flex justify-between items-center">
-            <div>
-              <span className={`px-2 py-1 rounded text-[9px] font-black uppercase ${req.status === 'approved' ? 'bg-green-100 text-green-700' : req.status === 'rejected' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>{req.status}</span>
-              <h4 className="font-bold text-slate-800 mt-1 uppercase text-sm">{req.type}</h4>
-              <p className="text-xs text-slate-500 font-medium">{new Date(req.start).toLocaleDateString()} - {new Date(req.end).toLocaleDateString()}</p>
-            </div>
-            {isAdmin && targetIdentifier !== currentUser.uid && req.status === 'pending' && (
-              <div className="flex gap-2">
-                <button onClick={() => updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'leaves', req.id), {status:'approved'})} className="bg-green-600 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase shadow-md">Sì</button>
-                <button onClick={() => updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'leaves', req.id), {status:'rejected'})} className="bg-red-50 text-red-600 px-4 py-2 rounded-xl text-[10px] font-black uppercase border border-red-100">No</button>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        {assigned.map(name => {
+          const staff = allStaff.find(u => u.name === name);
+          const isMasterRole = staff?.role === 'Master';
+          return (
+            <div key={name} className="p-4 bg-white border rounded-[28px] flex justify-between items-center shadow-sm">
+              <div className="flex items-center gap-4">
+                <div className={`w-10 h-10 rounded-2xl flex items-center justify-center font-black text-sm ${isMasterRole ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
+                  {name.charAt(0)}
+                </div>
+                <span className="text-sm font-black text-slate-800 uppercase tracking-tighter">{name}</span>
               </div>
-            )}
+              {isAdmin && !task.completed && <button onClick={async () => await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'tasks', task.id), { assignedTeam: arrayRemove(name) })} className="text-red-400 hover:bg-red-50 p-2 rounded-xl transition-colors"><X size={18}/></button>}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function SiteDocuments({ taskId, isAdmin, userData, isClosed }) {
+  const [docs, setDocs] = useState([]);
+  const [uploading, setUploading] = useState(false);
+
+  useEffect(() => {
+    const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'documents'), where('taskId', '==', taskId));
+    return onSnapshot(q, (snap) => setDocs(snap.docs.map(d => ({id: d.id, ...d.data()}))));
+  }, [taskId]);
+
+  const handleUpload = async (e) => {
+    if(isClosed) return;
+    const file = e.target.files[0];
+    if(!file) return;
+    setUploading(true);
+    const reader = new FileReader();
+    reader.onloadend = async () => {
+      await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'documents'), {
+        taskId, name: file.name, data: reader.result, uploadedBy: userData.name, createdAt: serverTimestamp()
+      });
+      setUploading(false);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  return (
+    <div className="space-y-4">
+      {isAdmin && !isClosed && (
+        <div className="bg-white p-5 rounded-[32px] border border-dashed border-slate-300 flex justify-between items-center">
+          <p className="text-xs font-black text-slate-500 uppercase tracking-widest">Documentazione Tecnica / POS</p>
+          <div className="flex items-center gap-3">
+             <input type="file" onChange={handleUpload} className="text-xs" />
+             {uploading && <Loader2 className="animate-spin text-blue-600"/>}
+          </div>
+        </div>
+      )}
+      <div className="grid gap-3">
+        {docs.map(d => (
+          <div key={d.id} className="flex items-center justify-between p-5 bg-white border rounded-[28px] shadow-sm">
+            <div className="flex items-center gap-4"><div className="p-3 bg-blue-50 rounded-2xl text-blue-500"><FileText size={20}/></div><span className="text-sm font-black uppercase tracking-tighter">{d.name}</span></div>
+            <a href={d.data} download={d.name} className="p-3 bg-slate-50 hover:bg-blue-600 hover:text-white rounded-2xl transition-all"><Download size={20}/></a>
           </div>
         ))}
       </div>
@@ -145,58 +332,162 @@ function LeaveRequestsPanel({ currentUser, targetIdentifier, isAdmin, userData }
   );
 }
 
-// --- SEZIONI CANTIERE ---
-function SiteOverview({ task, isMaster, isAdmin, userData }) {
-  const [stats, setStats] = useState({ mat: 0, hrs: 0, travel: 0 });
-  const next = task.schedule?.find(p => new Date(p.end) >= new Date());
+function SiteSchedule({ task, isAdmin }) {
+  const [schedule, setSchedule] = useState(task.schedule || []);
+  const [newPhase, setNewPhase] = useState({ name: '', start: '', end: '' });
 
-  useEffect(() => {
-    const unsubM = onSnapshot(query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'materials'), where('taskId', '==', task.id)), s => {
-      setStats(prev => ({...prev, mat: s.docs.reduce((sum, d) => sum + (parseFloat(d.data().quantity || 0) * parseFloat(d.data().cost || 0)), 0)}));
-    });
-    const unsubL = onSnapshot(query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'daily_reports'), where('taskId', '==', task.id)), s => {
-      const reps = s.docs.map(d=>d.data());
-      setStats(prev => ({...prev, hrs: reps.reduce((sum, d) => sum + (parseFloat(d.hours || 0)), 0), travel: reps.filter(d=>d.isTrasferta).length}));
-    });
-    return () => { unsubM(); unsubL(); };
-  }, [task.id]);
+  useEffect(() => { setSchedule(task.schedule || []); }, [task.schedule]);
 
-  const toggle = async () => {
-    const status = !task.completed;
-    if (status && !window.confirm("Chiudere il cantiere definitivamente?")) return;
-    if (!status && !isAdmin) return;
-    await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'tasks', task.id), { completed: status });
-    await logOperation(userData, status ? "Chiusura" : "Riapertura", task.title);
+  const addPhase = async (e) => {
+    e.preventDefault();
+    if(!isAdmin || !newPhase.name || !newPhase.start || !newPhase.end || task.completed) return;
+    const updated = [...schedule, newPhase].sort((a,b) => new Date(a.start) - new Date(b.start));
+    await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'tasks', task.id), { schedule: updated });
+    setNewPhase({ name: '', start: '', end: '' });
   };
 
   return (
-    <div className="space-y-6">
-      <div className={`p-6 rounded-[32px] border flex justify-between items-center gap-4 ${task.completed ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200'}`}>
-        <div className="flex items-center gap-4">
-          <div className={`p-3 rounded-2xl ${task.completed ? 'bg-slate-800 text-green-400' : 'bg-blue-50 text-blue-600'}`}>{task.completed ? <LockKeyhole/> : <Activity/>}</div>
-          <div><h4 className="font-black uppercase text-xs tracking-widest">Stato</h4><p className="text-sm font-bold">{task.completed ? 'CHIUSO' : 'ATTIVO'}</p></div>
-        </div>
-        {isMaster && (
-          <button onClick={toggle} className={`px-6 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-lg ${task.completed ? 'bg-blue-600' : 'bg-red-600'} text-white`}>
-            {task.completed ? 'Riapri' : 'Chiudi Cantiere'}
-          </button>
-        )}
-      </div>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-white p-5 rounded-3xl border text-center shadow-sm"><p className="text-[9px] font-black text-slate-400 uppercase mb-1 tracking-widest">Ore Lavoro</p><p className="text-xl font-black">{stats.hrs} H</p></div>
-        <div className="bg-white p-5 rounded-3xl border text-center shadow-sm"><p className="text-[9px] font-black text-slate-400 uppercase mb-1 tracking-widest">Materiali</p><p className="text-xl font-black">€ {stats.mat.toFixed(0)}</p></div>
-        <div className="bg-white p-5 rounded-3xl border text-center shadow-sm"><p className="text-[9px] font-black text-slate-400 uppercase mb-1 tracking-widest">Trasferte</p><p className="text-xl font-black text-orange-500">{stats.travel}</p></div>
-        <div className="bg-slate-50 p-5 rounded-3xl border text-center"><p className="text-[9px] font-black text-slate-400 uppercase mb-1 tracking-widest">Target</p><p className="text-xs font-bold truncate uppercase">{next ? next.name : 'Fine'}</p></div>
+    <div className="space-y-4">
+      {isAdmin && !task.completed && (
+        <form onSubmit={addPhase} className="bg-white p-5 rounded-[32px] border grid grid-cols-1 md:grid-cols-4 gap-4 shadow-sm">
+          <input placeholder="Fase" className="bg-slate-50 border-none rounded-2xl p-4 font-bold text-sm outline-none shadow-inner" value={newPhase.name} onChange={e=>setNewPhase({...newPhase, name: e.target.value})} />
+          <input type="date" className="bg-slate-50 border-none rounded-2xl p-4 font-bold text-sm outline-none shadow-inner" value={newPhase.start} onChange={e=>setNewPhase({...newPhase, start: e.target.value})} />
+          <input type="date" className="bg-slate-50 border-none rounded-2xl p-4 font-bold text-sm outline-none shadow-inner" value={newPhase.end} onChange={e=>setNewPhase({...newPhase, end: e.target.value})} />
+          <button type="submit" className="bg-blue-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg">Pianifica</button>
+        </form>
+      )}
+      <div className="space-y-3">
+        {schedule.map((p, i) => (
+          <div key={i} className="p-5 bg-white border rounded-[32px] flex justify-between items-center shadow-sm relative overflow-hidden">
+            <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-blue-500"></div>
+            <div><p className="font-black text-slate-800 uppercase tracking-tighter">{String(p.name)}</p><p className="text-[10px] font-black text-slate-400 mt-1 uppercase tracking-widest">{new Date(p.start).toLocaleDateString()} — {new Date(p.end).toLocaleDateString()}</p></div>
+          </div>
+        ))}
       </div>
     </div>
   );
 }
 
-// --- VISTE TAB ---
+function SitePhotos({ taskId, userData, isAdmin, isClosed }) {
+  const [photos, setPhotos] = useState([]);
+  const [uploading, setUploading] = useState(false);
+  const [lightbox, setLightbox] = useState(null);
+
+  useEffect(() => {
+    const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'photos'), where('taskId', '==', taskId));
+    return onSnapshot(q, (snap) => setPhotos(snap.docs.map(d => ({id: d.id, ...d.data()}))));
+  }, [taskId]);
+
+  const handleUpload = async (e) => {
+    if(isClosed) return;
+    const file = e.target.files[0];
+    if(!file) return;
+    setUploading(true);
+    const reader = new FileReader();
+    reader.onloadend = async () => {
+      await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'photos'), {
+        taskId, imageData: reader.result, uploaderName: userData.name, createdAt: serverTimestamp(), userId: userData.uid
+      });
+      setUploading(false);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center bg-white p-5 rounded-[32px] border shadow-sm">
+        <h3 className="font-black text-slate-800 uppercase tracking-tighter">Album Fotografico</h3>
+        {!isClosed && <input type="file" onChange={handleUpload} className="text-xs font-bold" accept="image/*" />}
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        {photos.map(p => (
+          <div key={p.id} onClick={() => setLightbox(p.imageData)} className="aspect-square bg-slate-100 rounded-[32px] overflow-hidden cursor-pointer border-4 border-white shadow-sm hover:scale-105 transition-all relative group">
+            <img src={p.imageData} className="w-full h-full object-cover" alt="Site" />
+            <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity"><Maximize2 className="text-white"/></div>
+          </div>
+        ))}
+      </div>
+      {lightbox && (
+        <div className="fixed inset-0 bg-black/95 z-50 flex items-center justify-center p-4 animate-in fade-in" onClick={()=>setLightbox(null)}>
+           <button className="absolute top-6 right-6 text-white"><X size={32}/></button>
+           <img src={lightbox} className="max-w-full max-h-full rounded-lg shadow-2xl object-contain" alt="Fullscreen" />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MaterialRequestsView({ taskId, userData, isClosed }) {
+  const [requests, setRequests] = useState([]);
+  const [item, setItem] = useState('');
+
+  useEffect(() => {
+    const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'material_requests'), where('taskId', '==', taskId));
+    return onSnapshot(q, (snap) => setRequests(snap.docs.map(d => ({id: d.id, ...d.data()}))));
+  }, [taskId]);
+
+  const add = async (e) => {
+    e.preventDefault();
+    if(isClosed || !item.trim()) return;
+    await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'material_requests'), {
+      taskId, item, status: 'pending', userName: userData.name, createdAt: serverTimestamp()
+    });
+    setItem('');
+  };
+
+  return (
+    <div className="space-y-4">
+      {!isClosed && (
+        <form onSubmit={add} className="flex gap-2 bg-white p-3 rounded-[32px] border shadow-sm">
+          <input value={item} onChange={e=>setItem(e.target.value)} placeholder="Di cosa hai bisogno?" className="flex-1 bg-transparent px-4 py-1 outline-none text-sm font-bold" />
+          <button className="bg-blue-600 text-white px-8 py-3 rounded-2xl font-black text-xs uppercase shadow-lg">Invia</button>
+        </form>
+      )}
+      <div className="space-y-3">
+        {requests.map(r => (
+          <div key={r.id} className="p-5 bg-white border rounded-[32px] flex justify-between items-center shadow-sm">
+            <div><p className="text-sm font-black text-slate-800 uppercase tracking-tighter leading-none">{r.item}</p><p className="text-[10px] text-slate-400 mt-2 uppercase font-black tracking-widest">Dip: {r.userName}</p></div>
+            <span className={`text-[9px] font-black px-4 py-1 rounded-lg ${r.status === 'pending' ? 'bg-yellow-50 text-yellow-600 border border-yellow-100' : 'bg-green-50 text-green-600 border border-green-100'}`}>{r.status.toUpperCase()}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SiteAccounting({ taskId }) {
+  const [totals, setTotals] = useState({ materials: 0, labor: 0, travel: 0 });
+  useEffect(() => {
+    const unsubM = onSnapshot(query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'materials'), where('taskId', '==', taskId)), s => {
+      setTotals(prev => ({...prev, materials: s.docs.reduce((sum, d) => sum + (parseFloat(d.data().quantity || 0) * parseFloat(d.data().cost || 0)), 0)}));
+    });
+    const unsubL = onSnapshot(query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'daily_reports'), where('taskId', '==', taskId)), s => {
+      const reports = s.docs.map(d=>d.data());
+      setTotals(prev => ({
+        ...prev, 
+        labor: reports.reduce((sum, d) => sum + (parseFloat(d.hours || 0)), 0) * STANDARD_HOURLY_RATE,
+        travel: reports.filter(d=>d.isTrasferta).length
+      }));
+    });
+    return () => { unsubM(); unsubL(); };
+  }, [taskId]);
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 animate-in slide-in-from-top-4">
+      <div className="bg-white p-6 rounded-3xl border shadow-sm text-center"><p className="text-[9px] text-slate-400 uppercase font-black tracking-widest mb-1">Materiali</p><p className="text-xl font-bold text-slate-800">€ {totals.materials.toFixed(0)}</p></div>
+      <div className="bg-white p-6 rounded-3xl border shadow-sm text-center"><p className="text-[9px] text-slate-400 uppercase font-black tracking-widest mb-1">Manodopera</p><p className="text-xl font-bold text-slate-800">€ {totals.labor.toFixed(0)}</p></div>
+      <div className="bg-white p-6 rounded-3xl border shadow-sm text-center"><p className="text-[9px] text-slate-400 uppercase font-black tracking-widest mb-1">Trasferte</p><p className="text-xl font-bold text-orange-600">{totals.travel}</p></div>
+      <div className="bg-slate-900 p-6 rounded-3xl shadow-xl text-center text-white"><p className="text-[9px] text-slate-400 uppercase font-black tracking-widest mb-1">Totale</p><p className="text-2xl font-bold">€ {(totals.materials + totals.labor).toFixed(0)}</p></div>
+    </div>
+  );
+}
+
+// --- VISTE TAB PRINCIPALI ---
+
 function TasksView({ userData, isAdmin, onSelectTask }) {
   const [tasks, setTasks] = useState([]);
-  const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ title: '', client: '', isTrasfertaSite: false });
+  const [isFormOpen, setIsFormOpen] = useState(false);
+  const [newTask, setNewTask] = useState({ title: '', client: '', description: '', isTrasfertaSite: false });
 
   useEffect(() => {
     return onSnapshot(collection(db, 'artifacts', APP_ID, 'public', 'data', 'tasks'), (snap) => {
@@ -204,34 +495,40 @@ function TasksView({ userData, isAdmin, onSelectTask }) {
     });
   }, []);
 
-  const add = async (e) => {
+  const addTask = async (e) => {
     e.preventDefault();
-    await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'tasks'), { ...form, completed: false, createdAt: serverTimestamp(), authorName: userData.name });
-    setShowForm(false); setForm({title:'', client:'', isTrasfertaSite:false});
+    if(!isAdmin) return;
+    await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'tasks'), { ...newTask, completed: false, createdAt: serverTimestamp(), authorName: userData.name });
+    setIsFormOpen(false);
+    setNewTask({title:'', client:'', description:'', isTrasfertaSite: false});
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <div className="flex justify-between items-center">
-         <h2 className="text-xl font-black text-slate-800 uppercase tracking-tighter">Bacheca Cantieri</h2>
-         {isAdmin && !showForm && <button onClick={()=>setShowForm(true)} className="bg-blue-600 text-white px-5 py-2 rounded-2xl flex gap-2 items-center shadow-lg font-black text-xs uppercase tracking-widest"><Plus size={16}/> Nuovo</button>}
+         <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tighter">Bacheca Cantieri</h2>
+         {isAdmin && !isFormOpen && <button onClick={()=>setIsFormOpen(true)} className="bg-blue-600 text-white px-6 py-3 rounded-2xl shadow-xl font-black text-xs uppercase tracking-widest hover:scale-105 transition-transform"><Plus size={18}/> Registra Nuovo</button>}
       </div>
-      {showForm && (
-        <form onSubmit={add} className="bg-white p-8 rounded-[40px] border shadow-xl space-y-4">
-          <input placeholder="Nome Cantiere" className="w-full bg-slate-50 border-none rounded-2xl p-4 font-bold outline-none focus:ring-2 focus:ring-blue-600" onChange={e=>setForm({...form, title: e.target.value})} required />
-          <input placeholder="Committente" className="w-full bg-slate-50 border-none rounded-2xl p-4 font-bold outline-none focus:ring-2 focus:ring-blue-600" onChange={e=>setForm({...form, client: e.target.value})} required />
-          <div className="flex items-center gap-3 p-2 ml-2"><input type="checkbox" className="w-5 h-5 accent-blue-600" onChange={e=>setForm({...form, isTrasfertaSite: e.target.checked})} /><label className="text-[10px] font-black uppercase text-slate-400">Sito in Trasferta?</label></div>
-          <div className="flex gap-4"><button type="submit" className="bg-blue-600 text-white px-10 py-3 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg">Crea</button><button type="button" onClick={()=>setShowForm(false)} className="text-slate-400 font-bold px-4">Annulla</button></div>
+      {isFormOpen && (
+        <form onSubmit={addTask} className="bg-white p-10 rounded-[40px] border shadow-2xl space-y-5 animate-in slide-in-from-top-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <input placeholder="Titolo" className="bg-slate-50 border-none rounded-2xl p-5 outline-none font-bold text-lg" onChange={e=>setNewTask({...newTask, title: e.target.value})} required />
+            <input placeholder="Cliente" className="bg-slate-50 border-none rounded-2xl p-5 outline-none font-bold text-lg" onChange={e=>setNewTask({...newTask, client: e.target.value})} required />
+          </div>
+          <div className="flex items-center gap-3 bg-slate-50 p-4 rounded-2xl shadow-inner">
+             <input type="checkbox" className="w-5 h-5 accent-blue-600" onChange={e=>setNewTask({...newTask, isTrasfertaSite: e.target.checked})} />
+             <label className="text-sm font-black uppercase text-slate-400 tracking-widest">Sito in Trasferta?</label>
+          </div>
+          <div className="flex gap-4 pt-4"><button type="submit" className="bg-blue-600 text-white px-12 py-4 rounded-3xl font-black text-xs uppercase shadow-xl">Salva</button><button type="button" onClick={()=>setIsFormOpen(false)} className="text-slate-400 font-bold uppercase text-xs">Annulla</button></div>
         </form>
       )}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {tasks.map(t => (
-          <div key={t.id} onClick={()=>onSelectTask(t)} className="bg-white p-6 border rounded-[40px] hover:ring-2 hover:ring-blue-500 cursor-pointer shadow-sm relative overflow-hidden group h-48 flex flex-col justify-between">
-            <div className={`absolute top-0 right-0 w-24 h-24 blur-3xl opacity-10 rounded-full translate-x-1/2 -translate-y-1/2 ${t.completed ? 'bg-slate-900' : 'bg-blue-600'}`}></div>
-            <div><h4 className="font-black text-lg text-slate-800 truncate uppercase leading-tight">{t.title}</h4><p className="text-[10px] text-slate-400 uppercase font-black tracking-widest mt-1">{t.client}</p></div>
-            <div className="flex gap-2">
-              <span className={`text-[9px] px-3 py-1 rounded-lg font-black border ${t.completed ? 'bg-slate-900 text-white' : 'bg-blue-50 text-blue-600 border-blue-100'}`}>{t.completed ? 'CHIUSO' : 'ATTIVO'}</span>
-              {t.isTrasfertaSite && <span className="text-[9px] px-3 py-1 rounded-lg font-black bg-orange-50 text-orange-600 border border-orange-100">TRASFERTA</span>}
+          <div key={t.id} onClick={()=>onSelectTask(t)} className="bg-white p-7 border rounded-[48px] hover:ring-4 hover:ring-blue-600/10 cursor-pointer transition-all shadow-sm h-64 relative overflow-hidden group">
+            <div className={`absolute top-0 right-0 w-32 h-32 blur-3xl opacity-10 rounded-full translate-x-1/2 -translate-y-1/2 ${t.completed ? 'bg-slate-900' : 'bg-blue-600'}`}></div>
+            <div className="relative z-10 flex flex-col justify-between h-full">
+               <div><h4 className="font-black text-2xl text-slate-800 truncate tracking-tighter uppercase leading-none">{t.title}</h4><p className="text-[10px] text-slate-400 uppercase font-black mt-2 tracking-widest">{t.client}</p></div>
+               <div className="flex flex-wrap gap-2"><span className={`text-[10px] px-4 py-1.5 rounded-2xl font-black border ${t.completed ? 'bg-slate-900 text-white border-slate-800' : 'bg-blue-50 text-blue-600 border-blue-100 shadow-sm'}`}>{t.completed ? 'CHIUSO' : 'ATTIVO'}</span>{t.isTrasfertaSite && <span className="text-[10px] px-4 py-1.5 rounded-2xl font-black bg-orange-50 text-orange-600 border border-orange-100">TRASFERTA</span>}</div>
             </div>
           </div>
         ))}
@@ -254,7 +551,7 @@ function DailyReportsView({ userData, tasks }) {
   const submit = async (e) => {
     e.preventDefault();
     const currentTask = tasks.find(t=>t.id===form.taskId);
-    if(!currentTask || currentTask.completed) return;
+    if(!currentTask) return;
     const sign = canvasRef.current?.toDataURL();
     const vehicle = vehicles.find(v=>v.id === form.vehicleId);
     await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'daily_reports'), { 
@@ -266,26 +563,46 @@ function DailyReportsView({ userData, tasks }) {
 
   return (
     <div className="space-y-8 max-w-2xl mx-auto">
-      <form onSubmit={submit} className="bg-white p-8 rounded-[40px] border shadow-xl space-y-5">
-        <h3 className="text-xl font-black text-slate-800 uppercase tracking-tighter flex items-center gap-4"><PenTool size={24} className="text-blue-600"/> Rapportino</h3>
-        <select value={form.taskId} onChange={e=>setForm({...form, taskId: e.target.value})} className="w-full bg-slate-50 border-none rounded-2xl p-4 font-bold text-sm" required><option value="">Cantiere...</option>{tasks.filter(t=>!t.completed).map(t=><option key={t.id} value={t.id}>{t.title}</option>)}</select>
+      <form onSubmit={submit} className="bg-white p-10 rounded-[48px] border shadow-xl space-y-6">
+        <h3 className="text-xl font-black text-slate-800 uppercase tracking-tighter flex items-center gap-4"><PenTool size={28} className="text-blue-600"/> Rapportino</h3>
+        <select value={form.taskId} onChange={e=>setForm({...form, taskId: e.target.value})} className="w-full bg-slate-50 border-none rounded-3xl p-5 outline-none font-bold text-sm" required>
+          <option value="">Scegli Cantiere Operativo...</option>
+          {tasks.filter(t=>!t.completed).map(t=><option key={t.id} value={t.id}>{t.title}</option>)}
+        </select>
         <div className="flex gap-4">
-           <input type="number" step="0.5" placeholder="Ore" value={form.hours} onChange={e=>setForm({...form, hours: e.target.value})} className="flex-1 bg-slate-50 rounded-2xl p-4 font-bold text-sm border-none shadow-inner" required />
-           <select value={form.vehicleId} onChange={e=>setForm({...form, vehicleId: e.target.value})} className="flex-1 bg-slate-50 border-none rounded-2xl p-4 font-bold text-sm shadow-inner" required><option value="">Mezzo...</option><option value="none">Nessuno</option>{vehicles.map(v => <option key={v.id} value={v.id}>{v.name} ({v.plate})</option>)}</select>
+           <input type="number" step="0.5" placeholder="Ore" value={form.hours} onChange={e=>setForm({...form, hours: e.target.value})} className="flex-1 bg-slate-50 rounded-3xl p-5 font-bold text-sm border-none shadow-inner" required />
+           <select value={form.vehicleId} onChange={e=>setForm({...form, vehicleId: e.target.value})} className="flex-1 bg-slate-50 border-none rounded-3xl p-5 outline-none font-bold text-sm shadow-inner" required>
+              <option value="">Scegli Mezzo...</option>
+              <option value="none">Nessun mezzo aziendale</option>
+              {vehicles.map(v => <option key={v.id} value={v.id}>{v.name} ({v.plate})</option>)}
+           </select>
         </div>
-        <div className="flex items-center justify-between p-4 bg-blue-50 rounded-2xl border border-blue-100">
-           <span className="text-[10px] font-black text-blue-900 uppercase tracking-widest flex items-center gap-2"><MapPin size={16}/> Trasferta?</span>
-           <button type="button" onClick={()=>setForm({...form, isTrasferta: !form.isTrasferta})} className={`w-12 h-6 rounded-full transition-colors relative ${form.isTrasferta ? 'bg-blue-600' : 'bg-slate-300'}`}><div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${form.isTrasferta ? 'left-7' : 'left-1'}`}></div></button>
+        <div className="flex items-center justify-between p-5 bg-blue-50 rounded-3xl border border-blue-100">
+           <div className="flex items-center gap-3"><MapPin className="text-blue-600" size={20}/><span className="text-sm font-black text-blue-900 uppercase">Giornata in Trasferta?</span></div>
+           <button type="button" onClick={()=>setForm({...form, isTrasferta: !form.isTrasferta})} className={`w-14 h-7 rounded-full transition-colors relative shadow-inner ${form.isTrasferta ? 'bg-blue-600' : 'bg-slate-300'}`}>
+              <div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all shadow-sm ${form.isTrasferta ? 'left-8' : 'left-1'}`}></div>
+           </button>
         </div>
-        <textarea placeholder="Lavori svolti..." value={form.desc} onChange={e=>setForm({...form, desc: e.target.value})} className="w-full bg-slate-50 border-none rounded-2xl p-4 font-bold text-sm shadow-inner" rows="4" required />
-        <div className="border border-dashed rounded-[32px] p-6 bg-slate-50 text-center"><canvas ref={canvasRef} width={300} height={100} className="w-full h-32 bg-white rounded-3xl border shadow-inner touch-none cursor-crosshair" onMouseDown={(e) => { const ctx = e.target.getContext('2d'); ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(e.nativeEvent.offsetX, e.nativeEvent.offsetY); }} onMouseMove={(e) => { if(e.buttons !== 1) return; const ctx = e.target.getContext('2d'); ctx.lineTo(e.nativeEvent.offsetX, e.nativeEvent.offsetY); ctx.stroke(); }} /></div>
-        <button type="submit" className="w-full bg-blue-600 text-white py-5 rounded-[24px] font-black uppercase tracking-widest text-sm shadow-xl">Invia</button>
+        <textarea placeholder="Descrizione lavori..." value={form.desc} onChange={e=>setForm({...form, desc: e.target.value})} className="w-full bg-slate-50 border-none rounded-3xl p-5 font-bold text-sm shadow-inner outline-none" rows="4" required />
+        <div className="border border-dashed rounded-[32px] p-6 bg-slate-50 text-center cursor-crosshair">
+           <canvas ref={canvasRef} width={300} height={100} className="w-full h-32 bg-white rounded-3xl border shadow-inner touch-none" onMouseDown={(e) => {
+             const ctx = e.target.getContext('2d'); ctx.lineWidth = 3; ctx.lineCap="round"; ctx.beginPath(); ctx.moveTo(e.nativeEvent.offsetX, e.nativeEvent.offsetY);
+           }} onMouseMove={(e) => {
+             if(e.buttons !== 1) return; const ctx = e.target.getContext('2d'); ctx.lineTo(e.nativeEvent.offsetX, e.nativeEvent.offsetY); ctx.stroke();
+           }} />
+        </div>
+        <button type="submit" className="w-full bg-blue-600 text-white py-5 rounded-[28px] font-black uppercase tracking-widest text-sm shadow-xl">Salva Report</button>
       </form>
       <div className="space-y-4">
         {reports.map(r => (
-          <div key={r.id} className="p-5 bg-white border rounded-[32px] shadow-sm flex justify-between items-center transition-all border-slate-100">
-            <div className="flex-1 pr-4"><p className="font-bold text-slate-800 line-clamp-1 uppercase text-sm">{r.desc}</p><p className="text-[9px] text-slate-400 mt-1 uppercase font-black">{r.userName} • {r.taskTitle} • {r.hours} H • {r.vehicleName} {r.isTrasferta ? '• TRASFERTA' : ''}</p></div>
-            {r.sign && <img src={r.sign} className="h-12 opacity-30 grayscale rounded-xl" alt="Sign"/>}
+          <div key={r.id} className="p-6 bg-white border rounded-[36px] flex justify-between items-center shadow-sm border-slate-100">
+            <div className="flex-1 pr-4">
+              <p className="font-bold text-slate-800 line-clamp-1 uppercase text-sm">{r.desc}</p>
+              <p className="text-[9px] text-slate-400 mt-2 uppercase font-black tracking-widest">
+                {r.userName} • {r.taskTitle} • {r.hours} H • {r.vehicleName} {r.isTrasferta ? '• TRASFERTA' : ''}
+              </p>
+            </div>
+            {r.sign && <img src={r.sign} className="h-12 opacity-30 grayscale rounded-xl border border-slate-100" alt="Sign"/>}
           </div>
         ))}
       </div>
@@ -323,11 +640,9 @@ function VehiclesView({ isAdmin }) {
                  </select>
                ) : <p className="text-sm font-black text-blue-600 uppercase tracking-tight">{v.assignedTo}</p>}
             </div>
-            {isAdmin && <button onClick={async()=>await deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'vehicles', v.id))} className="absolute top-4 right-4 text-slate-200 hover:text-red-400"><Trash2 size={16}/></button>}
           </div>
         )
       })}
-      {vehicles.length === 0 && <div className="col-span-full py-20 text-center text-slate-300 font-black uppercase text-xs tracking-widest">Nessun veicolo censito</div>}
     </div>
   );
 }
@@ -389,7 +704,8 @@ function PersonalAreaView({ user, userData, isMaster, isAdmin }) {
   );
 }
 
-// --- LAYOUT ---
+// --- LAYOUT E ROUTING ---
+
 function TaskDetailContainer({ task, userData, isMaster, isAdmin, onBack }) {
   const [active, setActive] = useState('overview');
   const isClosed = task.completed;
@@ -397,17 +713,16 @@ function TaskDetailContainer({ task, userData, isMaster, isAdmin, onBack }) {
     { id: 'overview', label: 'Info', icon: Activity }, 
     { id: 'chat', label: 'Chat', icon: MessageSquare }, 
     { id: 'team', label: 'Squadra', icon: Users }, 
-    { id: 'documents', label: 'Documenti', icon: FileCheck }, 
+    { id: 'documents', label: 'File', icon: FileCheck }, 
     { id: 'schedule', label: 'Crono', icon: CalendarRange }, 
-    { id: 'materials', label: 'Logistica', icon: Package }, 
-    { id: 'requests', label: 'Ordini', icon: ShoppingCart }, 
-    { id: 'photos', label: 'Foto', icon: Camera },
-    ...(isMaster ? [{ id: 'accounting', label: 'Costi', icon: Calculator }] : [])
+    { id: 'accounting', label: 'Costi', icon: Calculator }, 
+    { id: 'requests', label: 'Richieste', icon: ShoppingCart }, 
+    { id: 'photos', label: 'Foto', icon: Camera } 
   ];
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-300">
-      <button onClick={onBack} className="flex items-center gap-2 text-slate-400 text-sm font-bold uppercase tracking-widest hover:text-blue-600 transition-colors"><ArrowLeft size={16}/> Torna Indietro</button>
+    <div className="space-y-6 animate-in fade-in duration-500">
+      <button onClick={onBack} className="flex items-center gap-2 text-slate-400 text-sm font-bold uppercase tracking-widest hover:text-blue-600 transition-colors"><ArrowLeft size={16}/> Indietro</button>
       <div className="bg-white p-6 rounded-[32px] border shadow-sm">
         <h2 className="text-2xl font-black text-slate-800 tracking-tighter uppercase leading-none">{task.title}</h2>
         <div className="flex gap-2 mt-8 border-b overflow-x-auto scrollbar-hide">
@@ -422,10 +737,9 @@ function TaskDetailContainer({ task, userData, isMaster, isAdmin, onBack }) {
         {active === 'team' && <SiteTeam task={task} isAdmin={isAdmin} />}
         {active === 'documents' && <SiteDocuments taskId={task.id} isAdmin={isAdmin} userData={userData} isClosed={isClosed} />}
         {active === 'schedule' && <SiteSchedule task={task} isAdmin={isAdmin} />}
-        {active === 'materials' && <MaterialsView context="site" taskId={task.id} />}
+        {active === 'accounting' && isMaster && <SiteAccounting taskId={task.id} />}
         {active === 'requests' && <MaterialRequestsView taskId={task.id} userData={userData} isClosed={isClosed} />}
         {active === 'photos' && <SitePhotos taskId={task.id} userData={userData} isAdmin={isAdmin} isClosed={isClosed} />}
-        {active === 'accounting' && isMaster && <SiteAccounting taskId={task.id} />}
       </div>
     </div>
   );
@@ -438,7 +752,7 @@ function AuthScreen() {
     try { await signInWithEmailAndPassword(auth, email, password); } catch (err) { setError("Credenziali non valide"); } finally { setIsSubmitting(false); }
   };
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 bg-slate-100"><div className="max-w-md w-full bg-white rounded-[48px] shadow-2xl overflow-hidden border"><div className="bg-blue-800 p-12 text-center text-white"><div className="w-24 h-24 bg-white mx-auto rounded-3xl mb-8 flex items-center justify-center shadow-xl font-black text-blue-800 text-3xl">IA</div><h1 className="text-3xl font-black uppercase tracking-tighter">Impresadaria</h1><p className="text-blue-200 text-[10px] font-black uppercase mt-1">Impresa d'Aria Srl</p></div><form onSubmit={handleAuth} className="p-10 space-y-5">{error && <div className="p-4 bg-red-50 text-red-700 text-xs font-bold rounded-2xl">{error}</div>}<div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-4">Username</label><input type="text" value={username} onChange={e=>setUsername(e.target.value)} required className="w-full bg-slate-50 border-none rounded-2xl p-4 outline-none font-bold" /></div><div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-4">Password</label><input type="password" value={password} onChange={e=>setPassword(e.target.value)} required className="w-full bg-slate-50 border-none rounded-2xl p-4 outline-none font-bold" /></div><button type="submit" disabled={isSubmitting} className="w-full bg-blue-600 text-white py-5 rounded-[24px] font-black uppercase shadow-xl">{isSubmitting ? "..." : "Entra"}</button></form></div></div>
+    <div className="min-h-screen flex items-center justify-center p-4 bg-slate-100"><div className="max-w-md w-full bg-white rounded-[48px] shadow-2xl overflow-hidden border"><div className="bg-blue-800 p-12 text-center text-white"><div className="w-24 h-24 bg-white mx-auto rounded-3xl mb-8 flex items-center justify-center shadow-xl font-black text-blue-800 text-3xl">IA</div><h1 className="text-3xl font-black uppercase tracking-tighter">Impresadaria</h1></div><form onSubmit={handleAuth} className="p-10 space-y-5">{error && <div className="p-4 bg-red-50 text-red-700 text-xs font-bold rounded-2xl">{error}</div>}<div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase ml-4">User</label><input type="text" value={username} onChange={e=>setUsername(e.target.value)} required className="w-full bg-slate-50 border-none rounded-2xl p-4 outline-none font-bold" /></div><div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase ml-4">Pass</label><input type="password" value={password} onChange={e=>setPassword(e.target.value)} required className="w-full bg-slate-50 border-none rounded-2xl p-4 outline-none font-bold" /></div><button type="submit" disabled={isSubmitting} className="w-full bg-blue-600 text-white py-5 rounded-[24px] font-black uppercase shadow-xl">{isSubmitting ? "..." : "Entra"}</button></form></div></div>
   );
 }
 
@@ -477,7 +791,7 @@ function DashboardContainer({ user, userData }) {
                 <div className="absolute right-0 top-14 w-80 bg-white rounded-[32px] shadow-2xl border-4 border-slate-50 p-2 z-50 animate-in zoom-in-95">
                   <div className="p-4 border-b flex justify-between items-center font-black text-[11px] uppercase tracking-widest text-slate-400">Avvisi <button onClick={()=>setShowNotifPanel(false)}><X size={14}/></button></div>
                   <div className="max-h-80 overflow-y-auto scrollbar-hide">
-                    {notifications.length === 0 ? <p className="text-center py-10 text-xs text-slate-300 font-bold uppercase tracking-widest tracking-widest">Nessun avviso</p> : 
+                    {notifications.length === 0 ? <p className="text-center py-10 text-xs text-slate-300 font-bold uppercase tracking-widest">Nessun avviso</p> : 
                       notifications.map(n => (
                         <div key={n.id} onClick={async () => await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'notifications', n.id), { read: true })} className={`p-5 border-b last:border-none cursor-pointer hover:bg-slate-50 transition-colors ${!n.read ? 'bg-blue-50/40' : ''}`}><p className="text-xs font-black text-slate-800 uppercase tracking-tight">{n.title}</p><p className="text-[10px] text-slate-500 mt-2">{n.message}</p></div>
                       ))
