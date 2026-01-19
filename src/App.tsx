@@ -229,12 +229,21 @@ function MaterialsView({ context = 'global', taskId = null }) {
 }
 
 function DailyReportsView({ userData, tasks, isMaster, isAdminFull }) {
-  const [form, setForm] = useState({ taskId: '', hours: '', desc: '', vehicleName: '', isTrasferta: false, fuelAmount: '' });
+  const [form, setForm] = useState({ 
+    taskId: '', 
+    hours: '', 
+    desc: '', 
+    vehicleName: '', 
+    isTrasferta: false, 
+    fuelAmount: '',
+    reportDate: new Date().toISOString().split('T')[0] // Default to today
+  });
+  const [editingId, setEditingId] = useState(null);
   const [recentReports, setRecentReports] = useState([]);
 
   useEffect(() => {
     // Show only user's reports unless master
-    let q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'daily_reports'), orderBy('createdAt', 'desc'), limit(20));
+    let q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'daily_reports'), orderBy('createdAt', 'desc'), limit(30));
     return onSnapshot(q, (snap) => {
       let data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       if (!isMaster) {
@@ -244,6 +253,33 @@ function DailyReportsView({ userData, tasks, isMaster, isAdminFull }) {
     });
   }, [isMaster, userData.uid]);
 
+  const handleEdit = (report) => {
+    setForm({
+      taskId: report.taskId,
+      hours: report.hours,
+      desc: report.desc,
+      vehicleName: report.vehicleName || '',
+      isTrasferta: report.isTrasferta || false,
+      fuelAmount: report.fuelAmount || '',
+      reportDate: report.reportDate || new Date().toISOString().split('T')[0]
+    });
+    setEditingId(report.id);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const cancelEdit = () => {
+    setForm({ 
+      taskId: '', 
+      hours: '', 
+      desc: '', 
+      vehicleName: '', 
+      isTrasferta: false, 
+      fuelAmount: '',
+      reportDate: new Date().toISOString().split('T')[0]
+    });
+    setEditingId(null);
+  };
+
   const submitReport = async (e) => {
     e.preventDefault();
     if (!form.taskId || !form.hours || !form.desc) {
@@ -251,31 +287,64 @@ function DailyReportsView({ userData, tasks, isMaster, isAdminFull }) {
       return;
     }
     
-    // Auto-detect vehicle from static list if selected, or use form value
     const reportData = {
       ...form,
       userId: userData.uid,
       userName: userData.name,
-      reportDate: new Date().toISOString().split('T')[0],
-      createdAt: serverTimestamp()
+      // Use selected date or today if somehow empty
+      reportDate: form.reportDate || new Date().toISOString().split('T')[0],
+      updatedAt: serverTimestamp()
     };
 
-    await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'daily_reports'), reportData);
-    await logOperation(userData, "Nuovo Rapportino", `${form.hours}h su cantiere`);
-    setForm({ taskId: '', hours: '', desc: '', vehicleName: '', isTrasferta: false, fuelAmount: '' });
-    alert("Rapportino inviato!");
+    if (editingId) {
+      // UPDATE EXISTING
+      await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'daily_reports', editingId), reportData);
+      await logOperation(userData, "Modifica Rapportino", `${form.hours}h su cantiere (Data: ${reportData.reportDate})`);
+      setEditingId(null);
+      alert("Rapportino aggiornato!");
+    } else {
+      // CREATE NEW
+      reportData.createdAt = serverTimestamp();
+      await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'daily_reports'), reportData);
+      await logOperation(userData, "Nuovo Rapportino", `${form.hours}h su cantiere (Data: ${reportData.reportDate})`);
+      alert("Rapportino inviato!");
+    }
+
+    // Reset form but keep today's date
+    setForm({ 
+      taskId: '', 
+      hours: '', 
+      desc: '', 
+      vehicleName: '', 
+      isTrasferta: false, 
+      fuelAmount: '',
+      reportDate: new Date().toISOString().split('T')[0]
+    });
   };
 
   return (
     <div className="space-y-8 animate-in fade-in">
-       <div className="bg-white p-8 rounded-[40px] border shadow-lg">
-          <h2 className="text-xl font-black text-slate-800 uppercase tracking-tighter mb-6 flex items-center gap-2"><ClipboardList className="text-blue-600"/> Nuovo Rapportino</h2>
+       <div className={`bg-white p-8 rounded-[40px] border shadow-lg transition-colors ${editingId ? 'border-blue-400 ring-4 ring-blue-50' : ''}`}>
+          <h2 className="text-xl font-black text-slate-800 uppercase tracking-tighter mb-6 flex items-center justify-between">
+            <span className="flex items-center gap-2">
+              <ClipboardList className={editingId ? "text-orange-500" : "text-blue-600"}/> 
+              {editingId ? "Modifica Rapportino" : "Nuovo Rapportino"}
+            </span>
+            {editingId && <button onClick={cancelEdit} className="text-xs bg-slate-100 px-3 py-1 rounded-full text-slate-500 hover:bg-slate-200">Annulla Modifica</button>}
+          </h2>
+          
           <form onSubmit={submitReport} className="space-y-5">
-             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-               <select className="bg-slate-50 p-4 rounded-2xl font-bold text-sm outline-none w-full appearance-none" value={form.taskId} onChange={e => setForm({...form, taskId: e.target.value})}>
+             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+               <select className="bg-slate-50 p-4 rounded-2xl font-bold text-sm outline-none w-full appearance-none md:col-span-1" value={form.taskId} onChange={e => setForm({...form, taskId: e.target.value})}>
                  <option value="">-- Seleziona Cantiere --</option>
                  {tasks.filter(t => !t.completed).map(t => <option key={t.id} value={t.id}>{t.title} - {t.client}</option>)}
                </select>
+               <input 
+                  type="date" 
+                  className="bg-slate-50 p-4 rounded-2xl font-bold text-sm outline-none text-slate-600 uppercase" 
+                  value={form.reportDate} 
+                  onChange={e => setForm({...form, reportDate: e.target.value})} 
+               />
                <input type="number" placeholder="Ore Lavorate" className="bg-slate-50 p-4 rounded-2xl font-bold text-sm outline-none" value={form.hours} onChange={e => setForm({...form, hours: e.target.value})} />
              </div>
              
@@ -296,7 +365,9 @@ function DailyReportsView({ userData, tasks, isMaster, isAdminFull }) {
                 </div>
              </div>
 
-             <button type="submit" className="w-full bg-blue-600 text-white py-4 rounded-2xl font-black uppercase shadow-xl hover:bg-blue-700 transition-colors">Invia Rapporto</button>
+             <button type="submit" className={`w-full text-white py-4 rounded-2xl font-black uppercase shadow-xl transition-colors ${editingId ? 'bg-orange-500 hover:bg-orange-600' : 'bg-blue-600 hover:bg-blue-700'}`}>
+                {editingId ? "Aggiorna Rapporto" : "Invia Rapporto"}
+             </button>
           </form>
        </div>
 
@@ -304,12 +375,20 @@ function DailyReportsView({ userData, tasks, isMaster, isAdminFull }) {
           <h3 className="text-lg font-black text-slate-800 uppercase tracking-tighter mb-4 px-2">Recenti</h3>
           <div className="space-y-3">
              {recentReports.map(r => (
-                <div key={r.id} className="bg-white p-5 rounded-[32px] border shadow-sm flex justify-between items-center">
+                <div key={r.id} className={`bg-white p-5 rounded-[32px] border shadow-sm flex justify-between items-center ${editingId === r.id ? 'ring-2 ring-orange-200 bg-orange-50' : ''}`}>
                    <div>
                       <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{r.reportDate} • {r.userName}</p>
                       <p className="font-bold text-slate-800 mt-1 line-clamp-1">{r.desc}</p>
                    </div>
-                   <div className="font-black text-xl text-blue-600">{r.hours}h</div>
+                   <div className="flex items-center gap-4">
+                     <div className="font-black text-xl text-blue-600">{r.hours}h</div>
+                     {/* Edit Button: Visible if user is the creator or Master/Admin */}
+                     {(userData.uid === r.userId || isMaster) && (
+                       <button onClick={() => handleEdit(r)} className="p-2 bg-slate-100 rounded-xl text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-all">
+                         <Edit2 size={16}/>
+                       </button>
+                     )}
+                   </div>
                 </div>
              ))}
           </div>
