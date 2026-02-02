@@ -74,7 +74,7 @@ const USERS_CONFIG = {
   'g.granio': { role: 'Dipendente', name: 'Giuseppe Granio' },
   'c.motolese': { role: 'Dipendente', name: 'Cosimo Motolese' },
   'o.camassa': { role: 'Dipendente', name: 'Osvaldo Camassa' },
-  'c.tardiota': { role: 'Dipendente', name: 'Carmine Tardiota' }
+  'd.capodiferro': { role: 'Dipendente', name: 'Dario Capodiferro' }
 };
 
 // --- HELPERS E FORMATTER ---
